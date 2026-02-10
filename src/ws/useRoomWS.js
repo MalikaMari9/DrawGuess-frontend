@@ -13,6 +13,7 @@ export function useRoomWS(baseUrl) {
 
   const [status, setStatus] = useState("DISCONNECTED"); // DISCONNECTED | CONNECTING | CONNECTED | ERROR
   const [roomCode, setRoomCode] = useState("");
+  const [pid, setPid] = useState("");
   const [log, setLog] = useState([]);
   const [snapshot, setSnapshot] = useState(null);
   const [lastMsg, setLastMsg] = useState(null); // <- NEW (parsed last incoming)
@@ -32,6 +33,7 @@ export function useRoomWS(baseUrl) {
       } catch {}
       wsRef.current = null;
     }
+    setPid("");
   }, []);
 
   const connect = useCallback(
@@ -73,6 +75,7 @@ export function useRoomWS(baseUrl) {
         setStatus("DISCONNECTED");
         pushLog("SYS", `WebSocket closed (code=${e.code})`);
         wsRef.current = null;
+        setPid("");
       };
 
       myWs.onmessage = (e) => {
@@ -89,6 +92,7 @@ export function useRoomWS(baseUrl) {
         setLastMsg(msg);
         pushLog("IN", msg);
 
+        if (msg.type === "hello" && msg.pid) setPid(msg.pid);
         if (msg.type === "room_snapshot") setSnapshot(msg);
       };
     },
@@ -130,6 +134,7 @@ export function useRoomWS(baseUrl) {
       status,
       roomCode,
       setRoomCode,
+      pid,
       log,
       snapshot,
       lastMsg,          // <- NEW
@@ -139,7 +144,7 @@ export function useRoomWS(baseUrl) {
       send,
       clearLog: () => setLog([]),
     }),
-    [status, roomCode, log, snapshot, lastMsg, connect, connectWaitOpen, disconnect, send]
+    [status, roomCode, pid, log, snapshot, lastMsg, connect, connectWaitOpen, disconnect, send]
   );
 
   return api;
