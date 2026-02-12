@@ -1,0 +1,306 @@
+:root {
+  --green: #22c55e;
+  --yellow: #facc15;
+  --dark: #020617;
+  --light: #ffffff;
+  --accent: #f97316;
+  --subtitle-blue: #3a61ed;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: "Lato", sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--dark);
+  color: white;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  opacity: 0;
+  animation: pageFadeIn 1s ease forwards;
+}
+
+/* ================= WELCOME SECTION ================= */
+.welcome {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);    
+  background-size: 200% 200%;
+  animation: gradientMove 15s ease infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes pageFadeIn { to { opacity: 1; } }
+
+/* CONTENT BOX */
+.welcome-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  max-width: 600px;
+  width: 90%;
+  padding: 20px;
+  animation: containerPop 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  transform: scale(0.95); 
+  opacity: 0;
+}
+
+/* MAIN TITLE */
+.title-main {
+  font-family: "Bitcount Single", monospace;
+  font-size: clamp(3rem, 5vw, 4.5rem);
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 1px;
+  text-shadow: 0px 4px 0px #000, 0px 8px 20px rgba(249, 158, 22, 0.4);
+  margin-top: 0px;
+  margin-bottom: 10px;
+  opacity: 0;
+  animation: bounceDown 0.8s ease 0.3s forwards;
+}
+
+/* SUB TITLE */
+.title-sub {
+  font-family: "Bitcount Single", monospace;
+  font-size: clamp(1.2rem, 2vw, 1.8rem);
+  color: white;
+  letter-spacing: 2px;
+  margin-bottom: 40px;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeIn 0.8s ease 0.6s forwards;
+}
+
+/* INPUT */
+.nickname {
+  width: 100%;
+  max-width: 350px;
+  padding: 16px 24px;
+  border-radius: 25px;
+  border: 2px solid #334155;
+  background: #f1f5f9; 
+  font-size: 1.2rem;
+  text-align: center;
+  color: black; 
+  margin-bottom: 25px;
+  outline: none;
+  transition: all 0.3s ease;
+  opacity: 0;
+  animation: fadeIn 0.8s ease 0.9s forwards;
+}
+
+.join-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  opacity: 0;
+  animation: fadeIn 0.8s ease 1s forwards;
+}
+
+.join-divider {
+  margin: 26px 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  opacity: 0;
+  animation: fadeIn 0.8s ease 1s forwards;
+}
+
+.join-divider::before,
+.join-divider::after {
+  content: "";
+  height: 1px;
+  width: 80px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.room-code-input {
+  width: 200px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  border: 2px solid #334155;
+  background: #f1f5f9;
+  font-size: 1rem;
+  text-align: center;
+  color: black;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.room-code-input:focus {
+  border-color: var(--yellow);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.3);
+}
+
+.secondary-btn {
+  background: #1d4ed8;
+  box-shadow: 0 8px 0 #1e3a8a, 0 15px 20px rgba(0,0,0,0.2);
+}
+
+.secondary-btn:hover:not(:disabled) {
+  background: #2563eb;
+  box-shadow: 0 12px 0 #1e3a8a, 0 20px 25px rgba(0,0,0,0.3);
+}
+
+.nickname::placeholder { color: #64748b; }
+
+.nickname:focus {
+  border-color: var(--green);
+  background: #ffffff; 
+  box-shadow: 0 0 15px rgba(34, 197, 94, 0.3);
+  transform: scale(1.02);
+}
+
+/* BUTTON */
+.play-btn {
+  display: inline-block;
+  padding: 18px 60px;
+  font-size: 1.4rem;
+  font-family: "Bitcount Single", monospace;
+  font-weight: 700;
+  letter-spacing: 2px;
+  background: var(--accent);
+  color: white;
+  border-radius: 50px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 0 #c2410c, 0 15px 20px rgba(0,0,0,0.2);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  opacity: 0;
+  animation: popIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) 1.2s forwards;
+}
+
+.play-btn:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 0 #c2410c, 0 20px 25px rgba(0,0,0,0.3);
+  background: #fb923c;
+}
+
+.play-btn:active:not(:disabled) {
+  transform: translateY(6px);
+  box-shadow: 0 0 0 #c2410c, inset 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.play-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.play-btn::after {
+  content: "";
+  position: absolute;
+  top: 0; left: -100%;
+  width: 50%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  transform: skewX(-25deg);
+  transition: 0.5s;
+}
+
+.play-btn:hover::after {
+  left: 150%;
+  transition: 0.7s ease-in-out;
+}
+
+/* ================= SOUND TOGGLE BUTTON ================= */
+.sound-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 45px;
+  height: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(5px);
+  transition: all 0.3s ease;
+}
+
+.sound-toggle:hover {
+  background: var(--accent);
+  transform: scale(1.1);
+  box-shadow: 0 0 15px var(--accent);
+}
+
+.sound-toggle svg {
+  width: 24px;
+  height: 24px;
+  fill: white;
+  transition: opacity 0.3s;
+}
+
+.sound-toggle.muted svg {
+  opacity: 0.5;
+}
+
+.sound-toggle.muted::after {
+  content: "";
+  position: absolute;
+  width: 100%; height: 2px;
+  background: white;
+  transform: rotate(45deg);
+}
+
+/* ================= ANIMATIONS ================= */
+@keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+@keyframes containerPop { to { opacity: 1; transform: scale(1); } }
+@keyframes bounceDown {
+  0% { opacity: 0; transform: translateY(-50px); }
+  60% { transform: translateY(5px); }
+  80% { transform: translateY(-3px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes popIn { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+
+/* Toast Notification */
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100px);
+  background: #fff;
+  color: #ef4444;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: bold;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+  z-index: 100;
+  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  opacity: 0;
+}
+
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+/* LandingPage.css ရဲ့ ထိပ်ဆုံးမှာ ဒါထည့်ပါ */
+@import url('https://fonts.googleapis.com/css2?family=Bitcount+Single:wght@400;700;900&family=Lato:wght@400;700&display=swap');

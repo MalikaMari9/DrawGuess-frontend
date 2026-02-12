@@ -1,0 +1,158 @@
+
+.role-pick {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  font-family: "Lato", sans-serif;
+}
+
+.role-pick__header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.wheel-wrap {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  margin-bottom: 30px;
+}
+
+.wheel {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 6px solid #f97316;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.wheel.spinning {
+  animation: spin 1.2s linear infinite;
+}
+
+.wheel__slice {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  transform-origin: 100% 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #fff;
+}
+
+.wheel__slice span {
+  transform: rotate(-20deg);
+  font-weight: 700;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+.wheel-pointer {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 12px solid transparent;
+  border-right: 12px solid transparent;
+  border-bottom: 18px solid #facc15;
+}
+
+.role-pick__results {
+  text-align: center;
+  max-width: 600px;
+}
+
+.role-pick__teams {
+  width: min(900px, 95vw);
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+
+.role-pick__teams .battle-arena {
+  align-items: center;
+  width: 100%;
+}
+
+.role-pick__teams .vs-badge-container {
+  top: 50%;
+}
+
+.gm-standalone {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+
+.gm-title {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.85rem;
+  color: #facc15;
+  letter-spacing: 1px;
+}
+
+.gm-badge {
+  margin-left: 8px;
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  color: #facc15;
+  border: 1px solid #facc15;
+  border-radius: 8px;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.role-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px;
+  border-radius: 12px;
+}
+
+.role-name {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.role-tag {
+  font-size: 0.75rem;
+  color: #facc15;
+}
+
+.role-note {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+}
+
+.role-countdown {
+  margin-top: 10px;
+  font-size: 1rem;
+  color: #facc15;
+  font-weight: 700;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

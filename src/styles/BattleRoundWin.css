@@ -1,0 +1,261 @@
+/* BattleRoundWin.css */
+:root {
+  --primary: #6d4aff;
+  --dark: #2d3436;
+  --glass: rgba(255, 255, 255, 0.95);
+  --success: #2ed573;
+  --danger: #ff4757;
+  --gray: #b2bec3;
+  --orange: #f97316;
+}
+
+.battle-round-win-body {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
+  background-size: 110% 110%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  font-family: 'Lato', sans-serif;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Dark overlay to focus on result */
+.battle-round-win-body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(5px);
+  z-index: 0;
+}
+
+/* Modal Card */
+.result-modal {
+  position: relative;
+  z-index: 10;
+  background: black;
+  padding: 30px;
+  border-radius: 25px;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+  border: 4px solid #fff;
+  width: 80%;
+  max-width: 300px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Round Indicator */
+.round-tag {
+  background: var(--dark);
+  color: #fff;
+  padding: 5px 15px;
+  border-radius: 50px;
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  align-self: center;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Icon */
+.result-icon {
+  font-size: 4rem;
+  margin: 10px 0;
+  animation: bounce 1s infinite alternate;
+}
+
+/* Result Title */
+.result-title {
+  font-family: "Bitcount Single", monospace;
+  font-size: 2rem;
+  font-weight: 900;
+  margin: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.color-win {
+  color: var(--orange);
+}
+
+.color-lose {
+  color: var(--success);
+}
+
+/* Word Reveal */
+.word-reveal-box {
+  background: #fff;
+  border: 2px dashed #ccc;
+  padding: 10px;
+  border-radius: 12px;
+  margin-top: 5px;
+}
+
+.word-label {
+  font-size: 0.7rem;
+  color: #888;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.the-word {
+  font-family: "Bitcount Single", monospace;
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: var(--dark);
+  text-transform: uppercase;
+  word-break: break-word;
+}
+
+/* Winner Section */
+.winner-section {
+  background: #f1f2f6;
+  padding: 10px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid transparent;
+  transition: 0.3s;
+}
+
+.winner-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Bitcount Single";
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--primary);
+}
+
+.winner-info {
+  text-align: left;
+  flex: 1;
+}
+
+.winner-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--dark);
+  display: block;
+}
+
+.points-gained {
+  font-size: 0.85rem;
+  color: var(--success);
+  font-weight: 900;
+  font-family: "Bitcount Single";
+}
+
+/* No Winner State */
+.no-winner-avatar {
+  border-color: #ccc !important;
+  color: #ccc !important;
+}
+
+.no-winner-name {
+  color: #666 !important;
+}
+
+.no-winner-points {
+  color: #999 !important;
+}
+
+.no-winner-section {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+/* Timer Container */
+.timer-container {
+  margin-top: 10px;
+}
+
+.timer-bar {
+  height: 6px;
+  width: 100%;
+  background: #eee;
+  border-radius: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+.timer-fill {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  border-radius: 10px;
+  transition: width 1s linear;
+}
+
+.timer-text {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 700;
+  margin-top: 5px;
+}
+
+/* Hidden State */
+.hidden {
+  display: none !important;
+}
+
+/* Animations */
+@keyframes popIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes bounce {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-10px);
+  }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .result-modal {
+    padding: 20px;
+    max-width: 260px;
+  }
+
+  .result-title {
+    font-size: 1.8rem;
+  }
+
+  .the-word {
+    font-size: 1.5rem;
+  }
+
+  .result-icon {
+    font-size: 3.5rem;
+  }
+}

@@ -1,0 +1,240 @@
+:root {
+  --green: #22c55e;
+  --green-dark: #15803d;
+  --yellow: #facc15;
+  --dark: #020617;
+  --light: #ffffff;
+  --accent: #f97316;
+  --accent-dark: #c2410c;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: "Lato", sans-serif;
+}
+
+/* ================= SELECT MODE CONTAINER ================= */
+.select-mode {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617); 
+  background-size: 110% 110%;
+  animation: gradientMove 15s ease infinite;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 0;
+}
+
+body {
+  margin: 0;
+  background: var(--dark);
+  color: white;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ================= BACK BUTTON ================= */
+.back-btn {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 10;
+  padding: 6px 12px; 
+  font-size: 1.1rem;
+  font-family: "Bitcount Single", monospace;
+  background: #fff;
+  color: #000;
+  border-radius: 999px;
+  border: 3px solid #000;
+  text-decoration: none;
+  box-shadow: 0 4px 0 #000;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover { 
+  transform: translateY(-2px); 
+  box-shadow: 0 6px 0 #000; 
+}
+
+.back-btn:active { 
+  transform: translateY(2px); 
+  box-shadow: 0 2px 0 #000; 
+}
+
+/* ================= CARD CONTENT ================= */
+.select-card {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  max-width: 500px;
+  width: 90%;
+  padding: 40px 20px;
+  
+  /* Entrance Animation */
+  animation: containerPop 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  transform: scale(0.95);
+  opacity: 0;
+}
+
+@keyframes containerPop {
+  to { 
+    opacity: 1; 
+    transform: scale(1); 
+  }
+}
+
+/* TITLE */
+.select-card h1 {
+  font-family: "Bitcount Single", monospace;
+  font-size: clamp(2.5rem, 3vw, 2.5rem);
+  font-weight: 600;
+  color: var(--accent); 
+  letter-spacing: -1px;
+  margin-bottom: 50px;
+  line-height: 1;
+  text-shadow: 
+    0px 4px 0px #000,
+    0px 8px 20px rgba(249, 115, 22, 0.4);
+  
+  opacity: 0;
+  animation: fadeInDown 0.8s ease 0.3s forwards;
+}
+
+@keyframes fadeInDown {
+  from { 
+    opacity: 0; 
+    transform: translateY(-20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+/* BUTTONS */
+.play-btn {
+  display: block;
+  width: 100%;
+  max-width: 250px;
+  margin: 0 auto 20px auto;
+  padding: 18px 40px;
+  font-size: 1.3rem;
+  font-family: "Bitcount Single", monospace;
+  font-weight: 700;
+  letter-spacing: 2px;
+  
+  background: var(--accent); 
+  color: white;
+  border-radius: 50px;
+  border: none;
+  cursor: pointer;
+  
+  box-shadow: 0 8px 0 var(--accent-dark), 0 15px 20px rgba(0,0,0,0.2);
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+/* Staggered animations for buttons */
+.play-btn:nth-of-type(1) { 
+  animation: slideUpFade 0.6s ease 0.5s forwards; 
+}
+
+.play-btn:nth-of-type(2) { 
+  animation: slideUpFade 0.6s ease 0.7s forwards; 
+}
+
+@keyframes slideUpFade {
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+/* Button Hover */
+.play-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 0 var(--accent-dark), 0 20px 25px rgba(0,0,0,0.3);
+  background: #fb923c;
+}
+
+/* Button Active */
+.play-btn:active {
+  transform: translateY(6px);
+  box-shadow: 0 0 0 var(--accent-dark), inset 0 2px 5px rgba(0,0,0,0.2);
+}
+
+/* Shine Effect */
+.play-btn::after {
+  content: "";
+  position: absolute;
+  top: 0; 
+  left: -100%;
+  width: 50%; 
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  transform: skewX(-25deg);
+  transition: 0.5s;
+}
+
+.play-btn:hover::after {
+  left: 150%;
+  transition: 0.7s ease-in-out;
+}
+
+/* ================= SOUND TOGGLE ================= */
+.sound-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 45px;
+  height: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(5px);
+  transition: all 0.3s ease;
+}
+
+.sound-toggle:hover {
+  background: var(--accent);
+  transform: scale(1.1);
+  box-shadow: 0 0 15px var(--accent);
+}
+
+.sound-toggle svg {
+  width: 24px; 
+  height: 24px;
+  fill: white;
+  transition: opacity 0.3s;
+}
+
+.sound-toggle.muted svg { 
+  opacity: 0.5; 
+}
+
+.sound-toggle.muted::after {
+  content: "";
+  position: absolute;
+  width: 100%; 
+  height: 2px;
+  background: white;
+  transform: rotate(45deg);
+}

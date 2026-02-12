@@ -94,7 +94,7 @@ export default function RoomPanel({ ws }) {
             ) : (
               players.map((p) => (
                 <div key={p.pid} style={{ fontFamily: "monospace", fontSize: 12 }}>
-                  {p.pid} — {p.name} — connected:{String(p.connected)} — team:{String(p.team)}
+                  {p.pid} - {p.name} - connected:{String(p.connected)} - team:{String(p.team)}
                 </div>
               ))
             )}
