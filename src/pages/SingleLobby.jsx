@@ -13,8 +13,8 @@ const SingleLobby = () => {
   const playerCount = players.filter((p) => p.connected !== false).length;
   const maxPlayers = room.cap || 0;
   const canStart = playerCount >= 3;
-  const [lastSendOk, setLastSendOk] = useState(null);
   const [rolePickSent, setRolePickSent] = useState(false);
+  const [sendError, setSendError] = useState("");
 
   const copyCode = () => {
     if (!roomCode || roomCode === "----") return;
@@ -28,6 +28,13 @@ const SingleLobby = () => {
       navigate("/role-pick");
     }
   }, [room.state, rolePickSent, navigate]);
+
+  useEffect(() => {
+    const m = ws.lastMsg;
+    if (m?.type === "error") {
+      setSendError(m.message || "Request failed");
+    }
+  }, [ws.lastMsg]);
 
   return (
     <div className="lobby-body">
@@ -79,7 +86,10 @@ const SingleLobby = () => {
                     {room.gm_pid === player.pid && <span className="crown">👑</span>}
                     {(player.name || "?")[0]?.toUpperCase()}
                   </div>
-                  <span className="player-name">{player.name || "Unknown"}</span>
+                  <span className="player-name">
+                    {player.name || "Unknown"}
+                    {room.gm_pid === player.pid && <span className="gm-tag"> GM</span>}
+                  </span>
                 </div>
               ))
             )}
@@ -114,12 +124,17 @@ const SingleLobby = () => {
           className="start-btn"
           onClick={() => {
             const ok = ws.send({ type: "start_role_pick" });
-            setLastSendOk(ok);
+            if (!ok) setSendError("WebSocket not connected");
           }}
           disabled={!canStart}
         >
           Start Game
         </button>
+        {sendError && (
+          <div className="send-error" style={{ color: "#ef4444", marginTop: "8px" }}>
+            {sendError}
+          </div>
+        )}
 
       </div>
     </div>

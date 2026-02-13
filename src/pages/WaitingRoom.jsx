@@ -15,9 +15,25 @@ const WaitingRoom = () => {
   const mode = room.mode || "SINGLE";
   const myPid = ws.pid || localStorage.getItem("dg_pid");
   const me = players.find((p) => p.pid === myPid) || {};
-  const myRole = me.role || "";
   const isGM = room.gm_pid && myPid && room.gm_pid === myPid;
-  const isDrawer = myRole.includes("drawer");
+  const myRole = me.role || (isGM ? "gm" : "");
+  const isDrawer =
+    myRole.includes("drawer") ||
+    (myPid && (myPid === roles?.drawerA || myPid === roles?.drawerB || myPid === roles?.drawer));
+  const myTeam =
+    me.team ||
+    (typeof myRole === "string" && myRole.endsWith("A")
+      ? "A"
+      : typeof myRole === "string" && myRole.endsWith("B")
+      ? "B"
+      : null);
+  const teamName =
+    myTeam === "A" ? "Red Team" : myTeam === "B" ? "Blue Team" : "No Team";
+  const displayRole =
+    isGM ? "GM" : isDrawer ? "Drawer" : "Guesser";
+  const teamMembers = myTeam
+    ? players.filter((p) => p.team === myTeam)
+    : [];
 
   const [secret, setSecret] = useState("");
   const [strokeLimit, setStrokeLimit] = useState(12);
@@ -28,8 +44,10 @@ const WaitingRoom = () => {
   const [countdown, setCountdown] = useState(null);
   const [secretReveal, setSecretReveal] = useState(false);
   const [startTriggered, setStartTriggered] = useState(false);
+  const secretRequestedRef = useRef(false);
 
   const secretWord = roundConfig.secret_word || "";
+  const configReady = Boolean(roundConfig.config_ready);
   const countdownInitialized = useRef(false);
 
   useEffect(() => {
@@ -37,6 +55,18 @@ const WaitingRoom = () => {
       navigate(mode === "VS" ? "/battle-game" : "/single-game");
     }
   }, [room.state, navigate, mode]);
+
+  useEffect(() => {
+    if (ws.lastMsg) {
+      console.log("WS IN", ws.lastMsg);
+    }
+  }, [ws.lastMsg]);
+
+  useEffect(() => {
+    if (ws.status === "CONNECTED") {
+      ws.send({ type: "snapshot" });
+    }
+  }, [ws.status, room.state, configReady, ws.send]);
 
   useEffect(() => {
     if (!configSent || countdownInitialized.current) return;
@@ -47,10 +77,22 @@ const WaitingRoom = () => {
   }, [configSent]);
 
   useEffect(() => {
-    if (!configSent && secretWord) {
+    if (!configSent && (configReady || secretWord)) {
       setConfigSent(true);
     }
-  }, [secretWord, configSent]);
+  }, [secretWord, configReady, configSent]);
+
+  useEffect(() => {
+    if (!isDrawer) return;
+    if (!configReady) return;
+    if (secretWord) {
+      secretRequestedRef.current = false;
+      return;
+    }
+    if (secretRequestedRef.current) return;
+    secretRequestedRef.current = true;
+    ws.send({ type: "snapshot" });
+  }, [isDrawer, configReady, secretWord, ws]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -87,24 +129,60 @@ const WaitingRoom = () => {
         time_limit_sec: Number(timeLimit),
       });
     } else {
-      // VS: delay start_round until countdown ends (no set_round_config in backend)
+      ws.send({
+        type: "set_vs_config",
+        secret_word: secret.trim(),
+        time_limit_sec: Number(timeLimit),
+        strokes_per_phase: Number(strokesPerPhase),
+        guess_window_sec: Number(guessWindowSec),
+      });
     }
   };
 
   return (
     <div className="waiting-room">
       <div className="waiting-card">
-        <h1>Waiting Room</h1>
-        <p className="subtitle">Roles assigned. Waiting for configuration.</p>
+        <div className="card-header">
+          <h2>WAITING ROOM</h2>
+          <p className="subtitle">Roles assigned. Waiting for configuration.</p>
+        </div>
 
         <div className="role-section">
-          <div className="role-chip">You are: {myRole || "PLAYER"}</div>
-          {isDrawer && secretReveal && secretWord && (
+          <div className="role-chip">
+            You are: {displayRole}
+            {mode === "VS" && myTeam && ` · ${teamName}`}
+          </div>
+          {mode === "VS" && myTeam && teamMembers.length > 0 && (
+            <div className="team-panel">
+              <div className="team-title">{teamName}</div>
+              <div className="team-list">
+                {teamMembers.map((p) => (
+                  <div key={p.pid} className="team-member">
+                    <span className="team-avatar">
+                      {(p.name || "?")[0]?.toUpperCase()}
+                    </span>
+                    <span className="team-name">{p.name || "Unknown"}</span>
+                    {p.role?.includes("drawer") ? (
+                      <span className="team-role">Drawer</span>
+                    ) : (
+                      <span className="team-role">Guesser</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {isDrawer && (secretReveal || configReady) && secretWord && (
             <div className="secret-word">
               Secret word: <span>{secretWord}</span>
             </div>
           )}
-          {!isDrawer && secretReveal && (
+          {isDrawer && (secretReveal || configReady) && !secretWord && (
+            <div className="secret-word">
+              Waiting for secret word...
+            </div>
+          )}
+          {!isDrawer && (secretReveal || configReady) && (
             <div className="secret-word">
               Secret word is hidden. Get ready to guess.
             </div>
@@ -113,61 +191,79 @@ const WaitingRoom = () => {
 
         {isGM ? (
           <div className="config-panel">
-            <h2>GM Config</h2>
-            <input
-              type="text"
-              placeholder="Secret word"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-            />
+            <div className="form-row">
+              <label htmlFor="secretWord">Keyword</label>
+              <input
+                id="secretWord"
+                type="text"
+                placeholder="e.g. Apple, Tiger"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+              />
+            </div>
             {mode === "SINGLE" ? (
               <>
-                <input
-                  type="number"
-                  min="10"
-                  max="20"
-                  value={strokeLimit}
-                  onChange={(e) => setStrokeLimit(Number(e.target.value))}
-                  placeholder="Stroke limit"
-                />
-                <input
-                  type="number"
-                  min="180"
-                  max="420"
-                  value={timeLimit}
-                  onChange={(e) => setTimeLimit(Number(e.target.value))}
-                  placeholder="Time limit sec"
-                />
+                <div className="form-row">
+                  <label htmlFor="strokeLimit">Stroke Limit</label>
+                  <input
+                    id="strokeLimit"
+                    type="number"
+                    min="10"
+                    max="20"
+                    value={strokeLimit}
+                    onChange={(e) => setStrokeLimit(Number(e.target.value))}
+                  />
+                </div>
+                <div className="form-row">
+                  <label htmlFor="timeLimit">Time Limit</label>
+                  <input
+                    id="timeLimit"
+                    type="number"
+                    min="180"
+                    max="420"
+                    value={timeLimit}
+                    onChange={(e) => setTimeLimit(Number(e.target.value))}
+                  />
+                </div>
               </>
             ) : (
               <>
-                <input
-                  type="number"
-                  min="3"
-                  max="5"
-                  value={strokesPerPhase}
-                  onChange={(e) => setStrokesPerPhase(Number(e.target.value))}
-                  placeholder="Strokes per phase"
-                />
-                <input
-                  type="number"
-                  min="60"
-                  max="900"
-                  value={timeLimit}
-                  onChange={(e) => setTimeLimit(Number(e.target.value))}
-                  placeholder="Time limit sec"
-                />
-                <input
-                  type="number"
-                  min="5"
-                  max="60"
-                  value={guessWindowSec}
-                  onChange={(e) => setGuessWindowSec(Number(e.target.value))}
-                  placeholder="Guess window sec"
-                />
+                <div className="form-row">
+                  <label htmlFor="strokesPerPhase">Strokes/Phase</label>
+                  <input
+                    id="strokesPerPhase"
+                    type="number"
+                    min="3"
+                    max="5"
+                    value={strokesPerPhase}
+                    onChange={(e) => setStrokesPerPhase(Number(e.target.value))}
+                  />
+                </div>
+                <div className="form-row">
+                  <label htmlFor="timeLimitVs">Time Limit</label>
+                  <input
+                    id="timeLimitVs"
+                    type="number"
+                    min="60"
+                    max="900"
+                    value={timeLimit}
+                    onChange={(e) => setTimeLimit(Number(e.target.value))}
+                  />
+                </div>
+                <div className="form-row">
+                  <label htmlFor="guessWindowSec">Guess Window</label>
+                  <input
+                    id="guessWindowSec"
+                    type="number"
+                    min="5"
+                    max="60"
+                    value={guessWindowSec}
+                    onChange={(e) => setGuessWindowSec(Number(e.target.value))}
+                  />
+                </div>
               </>
             )}
-            <button className="primary-btn" onClick={handleConfigSubmit}>
+            <button className="start-btn" onClick={handleConfigSubmit}>
               Confirm & Start Countdown
             </button>
           </div>
@@ -182,6 +278,18 @@ const WaitingRoom = () => {
             Game starts in <span>{countdown}</span>
           </div>
         )}
+
+        <div className="debug-panel">
+          <div>Mode: {mode}</div>
+          <div>Room state: {room.state || "?"}</div>
+          <div>gm_pid: {room.gm_pid || "?"}</div>
+          <div>myPid: {myPid || "?"}</div>
+          <div>me found: {String(Boolean(me && me.pid))}</div>
+          <div>Config ready: {String(configReady)}</div>
+          <div>Secret in snapshot: {String(Boolean(secretWord))}</div>
+          <div>My role: {myRole || "?"}</div>
+          <div>My team: {myTeam || "none"}</div>
+        </div>
 
       </div>
     </div>

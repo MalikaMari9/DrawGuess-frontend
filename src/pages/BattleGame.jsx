@@ -35,12 +35,14 @@ const BattleGame = () => {
   const [team1Color, setTeam1Color] = useState('#000000');
   const [team1Size, setTeam1Size] = useState(6);
   const [team1Mode, setTeam1Mode] = useState('draw');
+  const [team1Brush, setTeam1Brush] = useState('line');
   const [team1SabotageUsed, setTeam1SabotageUsed] = useState(false);
 
   // Tool states for Team 2
   const [team2Color, setTeam2Color] = useState('#000000');
   const [team2Size, setTeam2Size] = useState(6);
   const [team2Mode, setTeam2Mode] = useState('draw');
+  const [team2Brush, setTeam2Brush] = useState('line');
   const [team2SabotageUsed, setTeam2SabotageUsed] = useState(false);
 
   // Canvas refs
@@ -48,6 +50,16 @@ const BattleGame = () => {
   const canvas2Ref = useRef(null);
   const ctx1Ref = useRef(null);
   const ctx2Ref = useRef(null);
+  const shapeStart1Ref = useRef(null);
+  const shapeStart2Ref = useRef(null);
+  const shapeBase1Ref = useRef(null);
+  const shapeBase2Ref = useRef(null);
+  const strokes1Ref = useRef([]);
+  const strokes2Ref = useRef([]);
+  const currentStroke1Ref = useRef(null);
+  const currentStroke2Ref = useRef(null);
+  const eraserPath1Ref = useRef([]);
+  const eraserPath2Ref = useRef([]);
 
   // ✅ FIXED: Drawing states - missing = operator
   const [isDrawing1, setIsDrawing1] = useState(false);
@@ -96,6 +108,84 @@ const BattleGame = () => {
     resizeCanvas(2);
   };
 
+  const drawStroke = (ctx, stroke) => {
+    ctx.save();
+    ctx.lineWidth = stroke.size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = stroke.color;
+    if (stroke.type === 'line') {
+      ctx.beginPath();
+      ctx.moveTo(stroke.start.x, stroke.start.y);
+      ctx.lineTo(stroke.end.x, stroke.end.y);
+      ctx.stroke();
+    } else if (stroke.type === 'circle') {
+      ctx.beginPath();
+      ctx.arc(stroke.center.x, stroke.center.y, stroke.radius, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (stroke.type === 'free') {
+      if (!stroke.points || stroke.points.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i += 1) {
+        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  const renderStrokes = (teamId) => {
+    const canvas = teamId === 1 ? canvas1Ref.current : canvas2Ref.current;
+    const ctx = teamId === 1 ? ctx1Ref.current : ctx2Ref.current;
+    const strokes = teamId === 1 ? strokes1Ref.current : strokes2Ref.current;
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    strokes.forEach((s) => drawStroke(ctx, s));
+  };
+
+  const distPointToSegment = (p, a, b) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+    const clamped = Math.max(0, Math.min(1, t));
+    const cx = a.x + clamped * dx;
+    const cy = a.y + clamped * dy;
+    return Math.hypot(p.x - cx, p.y - cy);
+  };
+
+  const hitStroke = (stroke, point, radius) => {
+    const r = radius + (stroke.size || 1) / 2;
+    if (stroke.type === 'line') {
+      return distPointToSegment(point, stroke.start, stroke.end) <= r;
+    }
+    if (stroke.type === 'circle') {
+      const d = Math.hypot(point.x - stroke.center.x, point.y - stroke.center.y);
+      return Math.abs(d - stroke.radius) <= r;
+    }
+    if (stroke.type === 'free') {
+      const pts = stroke.points || [];
+      for (let i = 1; i < pts.length; i += 1) {
+        if (distPointToSegment(point, pts[i - 1], pts[i]) <= r) return true;
+      }
+      return false;
+    }
+    return false;
+  };
+
+  const eraseAt = (teamId, point, radius) => {
+    if (teamId === 1) {
+      strokes1Ref.current = strokes1Ref.current.filter((s) => !hitStroke(s, point, radius));
+    } else {
+      strokes2Ref.current = strokes2Ref.current.filter((s) => !hitStroke(s, point, radius));
+    }
+    renderStrokes(teamId);
+  };
+
   const resizeCanvas = (teamId) => {
     const canvas = teamId === 1 ? canvas1Ref.current : canvas2Ref.current;
     if (!canvas) return;
@@ -114,6 +204,7 @@ const BattleGame = () => {
     ctx.putImageData(imageData, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    renderStrokes(teamId);
   };
 
   // Timer effect
@@ -148,9 +239,41 @@ const BattleGame = () => {
         ctx.strokeStyle = team1Color;
       }
 
-      ctx.moveTo(x, y);
+      if (team1Mode !== 'erase') {
+        ctx.fillStyle = team1Color;
+      }
+
+      if (team1Mode === 'erase') {
+        currentStroke1Ref.current = null;
+        eraserPath1Ref.current = [{ x, y }];
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      } else if (team1Mode === 'draw' && (team1Brush === 'line' || team1Brush === 'circle')) {
+        currentStroke1Ref.current = {
+          type: team1Brush,
+          color: team1Color,
+          size: team1Size,
+          start: { x, y },
+          end: { x, y },
+          center: { x, y },
+          radius: 0
+        };
+      } else if (team1Brush === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, team1Size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        currentStroke1Ref.current = {
+          type: 'free',
+          color: team1Color,
+          size: team1Size,
+          points: [{ x, y }]
+        };
+      }
     },
-    [team1Strokes, team1Mode, team1Size, team1Color]
+    [team1Strokes, team1Mode, team1Size, team1Color, team1Brush]
   );
 
   const draw1 = useCallback(
@@ -160,10 +283,37 @@ const BattleGame = () => {
 
       const { x, y } = getCanvasCoordinates(e, canvas1Ref.current);
       const ctx = ctx1Ref.current;
-      ctx.lineTo(x, y);
-      ctx.stroke();
+      if (team1Mode === 'erase') {
+        const eraserRadius = Math.max(6, team1Size * 1.5);
+        eraserPath1Ref.current.push({ x, y });
+        eraseAt(1, { x, y }, eraserRadius);
+      } else if (team1Mode === 'draw' && (team1Brush === 'line' || team1Brush === 'circle')) {
+        const stroke = currentStroke1Ref.current;
+        if (stroke) {
+          stroke.end = { x, y };
+          if (stroke.type === 'circle') {
+            const dx = x - stroke.start.x;
+            const dy = y - stroke.start.y;
+            stroke.center = { x: stroke.start.x, y: stroke.start.y };
+            stroke.radius = Math.sqrt(dx * dx + dy * dy);
+          }
+          renderStrokes(1);
+          drawStroke(ctx, stroke);
+        }
+      } else if (team1Brush === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, team1Size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        const stroke = currentStroke1Ref.current;
+        if (stroke && stroke.type === 'free') {
+          stroke.points.push({ x, y });
+          renderStrokes(1);
+          drawStroke(ctx, stroke);
+        }
+      }
     },
-    [isDrawing1]
+    [isDrawing1, team1Brush, team1Size, team1Mode]
   );
 
   const stopDrawing1 = useCallback(() => {
@@ -174,6 +324,14 @@ const BattleGame = () => {
     }
     setIsDrawing1(false);
     if (ctx1Ref.current) {
+      if (team1Mode === 'draw') {
+        const stroke = currentStroke1Ref.current;
+        if (stroke) {
+          strokes1Ref.current.push(stroke);
+          currentStroke1Ref.current = null;
+          renderStrokes(1);
+        }
+      }
       ctx1Ref.current.closePath();
     }
   }, [isDrawing1, team1Mode, team1Strokes]);
@@ -200,9 +358,41 @@ const BattleGame = () => {
         ctx.strokeStyle = team2Color;
       }
 
-      ctx.moveTo(x, y);
+      if (team2Mode !== 'erase') {
+        ctx.fillStyle = team2Color;
+      }
+
+      if (team2Mode === 'erase') {
+        currentStroke2Ref.current = null;
+        eraserPath2Ref.current = [{ x, y }];
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+      } else if (team2Mode === 'draw' && (team2Brush === 'line' || team2Brush === 'circle')) {
+        currentStroke2Ref.current = {
+          type: team2Brush,
+          color: team2Color,
+          size: team2Size,
+          start: { x, y },
+          end: { x, y },
+          center: { x, y },
+          radius: 0
+        };
+      } else if (team2Brush === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, team2Size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        currentStroke2Ref.current = {
+          type: 'free',
+          color: team2Color,
+          size: team2Size,
+          points: [{ x, y }]
+        };
+      }
     },
-    [team2Strokes, team2Mode, team2Size, team2Color]
+    [team2Strokes, team2Mode, team2Size, team2Color, team2Brush]
   );
 
   const draw2 = useCallback(
@@ -212,10 +402,37 @@ const BattleGame = () => {
 
       const { x, y } = getCanvasCoordinates(e, canvas2Ref.current);
       const ctx = ctx2Ref.current;
-      ctx.lineTo(x, y);
-      ctx.stroke();
+      if (team2Mode === 'erase') {
+        const eraserRadius = Math.max(6, team2Size * 1.5);
+        eraserPath2Ref.current.push({ x, y });
+        eraseAt(2, { x, y }, eraserRadius);
+      } else if (team2Mode === 'draw' && (team2Brush === 'line' || team2Brush === 'circle')) {
+        const stroke = currentStroke2Ref.current;
+        if (stroke) {
+          stroke.end = { x, y };
+          if (stroke.type === 'circle') {
+            const dx = x - stroke.start.x;
+            const dy = y - stroke.start.y;
+            stroke.center = { x: stroke.start.x, y: stroke.start.y };
+            stroke.radius = Math.sqrt(dx * dx + dy * dy);
+          }
+          renderStrokes(2);
+          drawStroke(ctx, stroke);
+        }
+      } else if (team2Brush === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, team2Size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        const stroke = currentStroke2Ref.current;
+        if (stroke && stroke.type === 'free') {
+          stroke.points.push({ x, y });
+          renderStrokes(2);
+          drawStroke(ctx, stroke);
+        }
+      }
     },
-    [isDrawing2]
+    [isDrawing2, team2Brush, team2Size, team2Mode]
   );
 
   const stopDrawing2 = useCallback(() => {
@@ -226,6 +443,14 @@ const BattleGame = () => {
     }
     setIsDrawing2(false);
     if (ctx2Ref.current) {
+      if (team2Mode === 'draw') {
+        const stroke = currentStroke2Ref.current;
+        if (stroke) {
+          strokes2Ref.current.push(stroke);
+          currentStroke2Ref.current = null;
+          renderStrokes(2);
+        }
+      }
       ctx2Ref.current.closePath();
     }
   }, [isDrawing2, team2Mode, team2Strokes]);
@@ -307,6 +532,8 @@ const BattleGame = () => {
     setTeam1Mode('draw');
     if (type === 'size') {
       setTeam1Size(value);
+    } else if (type === 'brush') {
+      setTeam1Brush(value);
     } else if (type === 'color') {
       setTeam1Color(value);
     }
@@ -316,6 +543,8 @@ const BattleGame = () => {
     setTeam2Mode('draw');
     if (type === 'size') {
       setTeam2Size(value);
+    } else if (type === 'brush') {
+      setTeam2Brush(value);
     } else if (type === 'color') {
       setTeam2Color(value);
     }
@@ -333,7 +562,9 @@ const BattleGame = () => {
     const canvas = canvas1Ref.current;
     const ctx = ctx1Ref.current;
     if (canvas && ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      strokes1Ref.current = [];
+      currentStroke1Ref.current = null;
+      renderStrokes(1);
     }
   };
 
@@ -341,7 +572,9 @@ const BattleGame = () => {
     const canvas = canvas2Ref.current;
     const ctx = ctx2Ref.current;
     if (canvas && ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      strokes2Ref.current = [];
+      currentStroke2Ref.current = null;
+      renderStrokes(2);
     }
   };
 
@@ -559,6 +792,24 @@ const BattleGame = () => {
                 </div>
               </div>
 
+              <div>
+                <div className="tool-group-label">Brush</div>
+                <div className="brush-type-group">
+                  <button
+                    className={`brush-type-btn ${team1Brush === 'line' ? 'active' : ''}`}
+                    onClick={() => setTeam1Tool('brush', 'line')}
+                  >
+                    Line
+                  </button>
+                  <button
+                    className={`brush-type-btn ${team1Brush === 'circle' ? 'active' : ''}`}
+                    onClick={() => setTeam1Tool('brush', 'circle')}
+                  >
+                    Circle
+                  </button>
+                </div>
+              </div>
+
               {/* Color Grid */}
               <div>
                 <div className="tool-group-label">Color</div>
@@ -707,6 +958,24 @@ const BattleGame = () => {
                   >
                     <div className="dot" style={{ width: '12px', height: '12px' }}></div>
                   </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="tool-group-label">Brush</div>
+                <div className="brush-type-group">
+                  <button
+                    className={`brush-type-btn ${team2Brush === 'line' ? 'active' : ''}`}
+                    onClick={() => setTeam2Tool('brush', 'line')}
+                  >
+                    Line
+                  </button>
+                  <button
+                    className={`brush-type-btn ${team2Brush === 'circle' ? 'active' : ''}`}
+                    onClick={() => setTeam2Tool('brush', 'circle')}
+                  >
+                    Circle
+                  </button>
                 </div>
               </div>
 

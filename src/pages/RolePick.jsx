@@ -14,9 +14,25 @@ const RolePick = () => {
   const room = snapshot.room || {};
   const players = snapshot.players || [];
   const isVS = (room.mode || "").toUpperCase() === "VS";
+  const myPid = ws.pid || localStorage.getItem("dg_pid");
 
   const gmPid = room.gm_pid || null;
   const gmPlayer = players.find((p) => p.pid === gmPid) || null;
+
+  const roleLabel = (p) => {
+    if (!p) return "PLAYER";
+    if (p.pid === gmPid) return "GM";
+    const r = (p.role || "").toLowerCase();
+    if (r === "drawer") return "DRAWER";
+    if (r === "guesser") return "GUESSER";
+    if (r === "drawera") return "DRAWER A";
+    if (r === "drawerb") return "DRAWER B";
+    if (r === "guessera") return "GUESSER A";
+    if (r === "guesserb") return "GUESSER B";
+    return (p.role || "PLAYER").toUpperCase();
+  };
+
+  const isMe = (p) => myPid && p && p.pid === myPid;
 
   const splitTeams = useMemo(() => {
     const basePlayers = players;
@@ -53,7 +69,7 @@ const RolePick = () => {
   }, []);
 
   useEffect(() => {
-    if (ws.status === "connected") {
+    if (ws.status === "CONNECTED") {
       ws.send({ type: "snapshot" });
     }
   }, [ws.status, ws.send]);
@@ -102,8 +118,9 @@ const RolePick = () => {
                       <span className="player-name">
                         {gmPlayer.name || "GM"}
                         <span className="gm-badge">GM</span>
+                        {isMe(gmPlayer) && <span className="gm-badge">YOU</span>}
                       </span>
-                      <span className="player-role">HOST</span>
+                      <span className="player-role">{roleLabel(gmPlayer)}</span>
                     </div>
                   </div>
                 </div>
@@ -131,9 +148,10 @@ const RolePick = () => {
                             {room.gm_pid === player.pid && (
                               <span className="gm-badge">GM</span>
                             )}
+                            {isMe(player) && <span className="gm-badge">YOU</span>}
                           </span>
                           <span className="player-role">
-                            {(player.role || "player").toUpperCase()}
+                            {roleLabel(player)}
                           </span>
                         </div>
                       </div>
@@ -168,9 +186,10 @@ const RolePick = () => {
                             {room.gm_pid === player.pid && (
                               <span className="gm-badge">GM</span>
                             )}
+                            {isMe(player) && <span className="gm-badge">YOU</span>}
                           </span>
                           <span className="player-role">
-                            {(player.role || "player").toUpperCase()}
+                            {roleLabel(player)}
                           </span>
                         </div>
                       </div>
@@ -192,8 +211,11 @@ const RolePick = () => {
             <div className="role-grid">
               {rolesList.map((p) => (
                 <div key={p.pid} className="role-card">
-                  <div className="role-name">{p.name}</div>
-                  <div className="role-tag">{p.role?.toUpperCase() || "PLAYER"}</div>
+                  <div className="role-name">
+                    {p.name}
+                    {isMe(p) && <span className="gm-badge">YOU</span>}
+                  </div>
+                  <div className="role-tag">{roleLabel(p)}</div>
                 </div>
               ))}
             </div>

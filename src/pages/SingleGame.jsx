@@ -7,6 +7,11 @@ const SingleGame = () => {
   const canvasRef = useRef(null);
   const audioEngineRef = useRef(null);
   const gameIntervalRef = useRef(null);
+  const shapeStartRef = useRef(null);
+  const shapeBaseImageRef = useRef(null);
+  const strokesRef = useRef([]);
+  const currentStrokeRef = useRef(null);
+  const eraserPathRef = useRef([]);
   
   // Game constants
   const MAX_TIME = 60;
@@ -16,6 +21,7 @@ const SingleGame = () => {
   const [gameState, setGameState] = useState({
     color: '#2f3542',
     size: 8,
+    brush: 'line',
     mode: 'draw',
     timeLeft: MAX_TIME,
     strokesUsed: 0,
@@ -197,6 +203,7 @@ const SingleGame = () => {
       // Canvas clear လုပ်ပြီး background ပြန်ဖြည့်
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+      renderStrokes();
     };
     
     resize();
@@ -259,6 +266,79 @@ const SingleGame = () => {
   }, []);
 
   // ========== DRAWING FUNCTIONS ==========
+  const drawStroke = useCallback((ctx, stroke) => {
+    ctx.save();
+    ctx.lineWidth = stroke.size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = stroke.color;
+    if (stroke.type === 'line') {
+      ctx.beginPath();
+      ctx.moveTo(stroke.start.x, stroke.start.y);
+      ctx.lineTo(stroke.end.x, stroke.end.y);
+      ctx.stroke();
+    } else if (stroke.type === 'circle') {
+      ctx.beginPath();
+      ctx.arc(stroke.center.x, stroke.center.y, stroke.radius, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (stroke.type === 'free') {
+      if (!stroke.points || stroke.points.length < 2) return;
+      ctx.beginPath();
+      ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (let i = 1; i < stroke.points.length; i += 1) {
+        ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }, []);
+
+  const renderStrokes = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    strokesRef.current.forEach((s) => drawStroke(ctx, s));
+  }, [drawStroke]);
+
+  const distPointToSegment = (p, a, b) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+    const clamped = Math.max(0, Math.min(1, t));
+    const cx = a.x + clamped * dx;
+    const cy = a.y + clamped * dy;
+    return Math.hypot(p.x - cx, p.y - cy);
+  };
+
+  const hitStroke = (stroke, point, radius) => {
+    const r = radius + (stroke.size || 1) / 2;
+    if (stroke.type === 'line') {
+      return distPointToSegment(point, stroke.start, stroke.end) <= r;
+    }
+    if (stroke.type === 'circle') {
+      const d = Math.hypot(point.x - stroke.center.x, point.y - stroke.center.y);
+      return Math.abs(d - stroke.radius) <= r;
+    }
+    if (stroke.type === 'free') {
+      const pts = stroke.points || [];
+      for (let i = 1; i < pts.length; i += 1) {
+        if (distPointToSegment(point, pts[i - 1], pts[i]) <= r) return true;
+      }
+      return false;
+    }
+    return false;
+  };
+
+  const eraseAt = useCallback((point, radius) => {
+    strokesRef.current = strokesRef.current.filter((s) => !hitStroke(s, point, radius));
+    renderStrokes();
+  }, [renderStrokes]);
   const getCanvasCoordinates = useCallback((e) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -297,12 +377,12 @@ const SingleGame = () => {
         return prev;
       }
       
-      const newStrokes = prev.strokesUsed + 1;
+      const newStrokes = prev.mode === 'erase' ? prev.strokesUsed : prev.strokesUsed + 1;
       setIsDrawing(true);
       audioEngineRef.current?.playDrawStart();
       
       const { x, y } = getCanvasCoordinates(e);
-      
+
       ctx.beginPath();
       ctx.lineWidth = prev.size;
       ctx.lineCap = 'round';
@@ -311,12 +391,43 @@ const SingleGame = () => {
       if (prev.mode === 'erase') {
         ctx.globalCompositeOperation = 'destination-out';
         ctx.strokeStyle = 'rgba(0,0,0,1)';
+        ctx.fillStyle = 'rgba(0,0,0,1)';
       } else {
         ctx.globalCompositeOperation = 'source-over';
         ctx.strokeStyle = prev.color;
+        ctx.fillStyle = prev.color;
       }
-      
-      ctx.moveTo(x, y);
+
+      if (prev.mode === 'erase') {
+        shapeStartRef.current = null;
+        shapeBaseImageRef.current = null;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        eraserPathRef.current = [{ x, y }];
+      } else if (prev.mode === 'draw' && (prev.brush === 'line' || prev.brush === 'circle')) {
+        currentStrokeRef.current = {
+          type: prev.brush,
+          color: prev.color,
+          size: prev.size,
+          start: { x, y },
+          end: { x, y },
+          center: { x, y },
+          radius: 0
+        };
+      } else if (prev.brush === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, prev.size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        currentStrokeRef.current = {
+          type: 'free',
+          color: prev.color,
+          size: prev.size,
+          points: [{ x, y }]
+        };
+      }
       
       return { ...prev, strokesUsed: newStrokes };
     });
@@ -335,13 +446,42 @@ const SingleGame = () => {
       if (prev.isGameOver || prev.isPaused) return prev;
       
       const { x, y } = getCanvasCoordinates(e);
-      
-      ctx.lineTo(x, y);
-      ctx.stroke();
+
+      if (prev.mode === 'erase') {
+        const eraserRadius = Math.max(6, prev.size * 1.5);
+        eraserPathRef.current.push({ x, y });
+        eraseAt({ x, y }, eraserRadius);
+      } else if (prev.mode === 'draw' && (prev.brush === 'line' || prev.brush === 'circle')) {
+        const stroke = currentStrokeRef.current;
+        if (stroke) {
+          stroke.end = { x, y };
+          if (stroke.type === 'circle') {
+            const dx = x - stroke.start.x;
+            const dy = y - stroke.start.y;
+            stroke.center = { x: stroke.start.x, y: stroke.start.y };
+            stroke.radius = Math.sqrt(dx * dx + dy * dy);
+          }
+          renderStrokes();
+          const previewCtx = canvas.getContext('2d');
+          drawStroke(previewCtx, stroke);
+        }
+      } else if (prev.brush === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, prev.size / 2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        const stroke = currentStrokeRef.current;
+        if (stroke && stroke.type === 'free') {
+          stroke.points.push({ x, y });
+          renderStrokes();
+          const previewCtx = canvas.getContext('2d');
+          drawStroke(previewCtx, stroke);
+        }
+      }
       
       return prev;
     });
-  }, [isDrawing, getCanvasCoordinates]);
+  }, [isDrawing, getCanvasCoordinates, drawStroke, renderStrokes, eraseAt]);
 
   const stopDrawing = useCallback(() => {
     setIsDrawing(false);
@@ -351,10 +491,18 @@ const SingleGame = () => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (ctx) {
+      if (gameState.mode === 'draw') {
+        const stroke = currentStrokeRef.current;
+        if (stroke) {
+          strokesRef.current.push(stroke);
+          currentStrokeRef.current = null;
+          renderStrokes();
+        }
+      }
       ctx.closePath();
       ctx.globalCompositeOperation = 'source-over';
     }
-  }, []);
+  }, [gameState.mode, renderStrokes]);
 
   // Canvas event listeners
   useEffect(() => {
@@ -390,6 +538,9 @@ const SingleGame = () => {
       if (type === 'size') {
         return { ...prev, mode: 'draw', size: value };
       }
+      if (type === 'brush') {
+        return { ...prev, mode: 'draw', brush: value };
+      }
       if (type === 'color') {
         return { ...prev, mode: 'draw', color: value };
       }
@@ -410,14 +561,9 @@ const SingleGame = () => {
       if (prev.isPaused) return prev;
       
       audioEngineRef.current?.playClear();
-      const canvas = canvasRef.current;
-      if (!canvas) return prev;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
+      strokesRef.current = [];
+      currentStrokeRef.current = null;
+      renderStrokes();
       
       return prev;
     });
@@ -588,6 +734,24 @@ const SingleGame = () => {
                     ></div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="tools-row">
+              <span className="tools-label">Brush</span>
+              <div className="brush-type-group">
+                <button
+                  className={`brush-type-btn ${gameState.brush === 'line' ? 'active' : ''}`}
+                  onClick={() => setTool('brush', 'line')}
+                >
+                  Line
+                </button>
+                <button
+                  className={`brush-type-btn ${gameState.brush === 'circle' ? 'active' : ''}`}
+                  onClick={() => setTool('brush', 'circle')}
+                >
+                  Circle
+                </button>
               </div>
             </div>
             

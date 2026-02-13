@@ -224,7 +224,7 @@
   background: var(--canvas-bg);
   position: relative;
   border-bottom: 1px solid var(--panel-border);
-  cursor: crosshair;
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
   background-image: linear-gradient(var(--canvas-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
   background-size: 20px 20px;
@@ -236,6 +236,7 @@ canvas {
   width: 100%;
   height: 100%;
   display: block;
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
 }
 
 /* --- Bottom Split Area --- */
@@ -336,6 +337,31 @@ canvas {
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
 }
 
+.brush-type-group {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.brush-type-btn {
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-family: "Bitcount Single";
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.brush-type-btn.active {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
 .dot {
   background: #fff;
   border-radius: 50%;
@@ -735,15 +761,31 @@ input:checked + .slider:before {
   }
 
   .brush-stack {
-    flex-direction: column;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-self: flex-end;
   }
 
   .color-grid {
-    grid-template-columns: 1fr;
+    display: flex;
+    gap: 6px;
+    grid-template-columns: none;
+    justify-content: flex-end;
+    align-self: flex-end;
   }
 
   .action-stack {
-    flex-direction: column;
+    flex-direction: row;
+  }
+
+  .brush-type-group {
+    justify-content: flex-end;
+    align-self: flex-end;
+  }
+
+  .tool-group-label {
+    width: 100%;
+    text-align: left;
   }
 
   .battle-game-body {
