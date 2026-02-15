@@ -1,31 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useRoomWSContext } from "../ws/RoomWSContext";
 import '../styles/BattleRoundWin.css';
 
 const BattleRoundWin = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // State ကို props ကနေလက်ခံမယ်
+  const { ws } = useRoomWSContext();
+  const snapshot = ws.snapshot || {};
+  const room = snapshot.room || {};
+  const game = snapshot.game || {};
+  const players = snapshot.players || [];
+  const myPid = ws.pid || sessionStorage.getItem('dg_pid');
+  const me = players.find((p) => p.pid === myPid) || {};
+  const canVote = room.state === 'ROUND_END' && game.phase === 'VOTING' && !!me.team;
+
   const {
-    round = 2,
+    round = room.round_no || 1,
     totalRounds = 5,
-    isWin = true,
-    word = isWin ? 'PIZZA' : 'QUANTUM PHYSICS',
+    isWin = !!game.winner_team,
+    word = (snapshot.round_config?.secret_word || '').toUpperCase(),
     winner = {
-      name: 'Alex',
-      avatar: 'A',
-      points: 150
+      name: players.find((p) => p.pid === (game.winner_pid || ''))?.name || (game.winner_team || ''),
+      avatar: game.winner_team || '',
+      points: 0,
     },
-    nextRoundDelay = 5
+    nextRoundDelay = 5,
   } = location.state || {};
 
   const [countdown, setCountdown] = useState(nextRoundDelay);
   const [timerWidth, setTimerWidth] = useState(100);
   const [viewState, setViewState] = useState(isWin ? 'win' : 'lose');
+  const [voted, setVoted] = useState(false);
+  const [lastError, setLastError] = useState(null);
 
-  // Countdown Timer Effect
   useEffect(() => {
+    if (canVote) return;
     setCountdown(nextRoundDelay);
     setTimerWidth(100);
 
@@ -33,14 +43,12 @@ const BattleRoundWin = () => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timerInterval);
-          // Countdown ပြီးရင် နောက် round ကိုသွားမယ်
           handleNextRound();
           return 0;
         }
         return prev - 1;
       });
-      
-      // Timer bar width ကို update လုပ်မယ်
+
       setTimerWidth((prev) => {
         const newWidth = prev - (100 / nextRoundDelay);
         return newWidth < 0 ? 0 : newWidth;
@@ -48,45 +56,67 @@ const BattleRoundWin = () => {
     }, 1000);
 
     return () => clearInterval(timerInterval);
-  }, [nextRoundDelay, viewState]);
+  }, [nextRoundDelay, viewState, canVote]);
 
-  // နောက် Round ကိုသွားမယ်
+  useEffect(() => {
+    const m = ws.lastMsg;
+    if (!m) return;
+
+    if (m.type === 'error') setLastError(m);
+
+    if (m.type === 'room_state_changed') {
+      if (m.state === 'ROLE_PICK') navigate('/role-pick');
+      if (m.state === 'CONFIG') navigate('/waiting-room');
+    }
+
+    if (m.type === 'round_end') {
+      const hasWinner = !!m.winner;
+      setViewState(hasWinner ? 'win' : 'lose');
+      setVoted(false);
+    }
+  }, [ws.lastMsg, navigate]);
+
+  useEffect(() => {
+    if (canVote) {
+      setVoted(false);
+      setLastError(null);
+    }
+  }, [canVote]);
+
   const handleNextRound = () => {
-    // TODO: နောက် round အတွက် navigation logic
-    console.log('Starting next round...');
-    // navigate('/battle-game', { 
-    //   state: { 
-    //     round: round + 1,
-    //     totalRounds 
-    //   } 
-    // });
+    if (room.state === 'ROLE_PICK') {
+      navigate('/role-pick');
+      return;
+    }
+    navigate('/waiting-room');
   };
 
-  // View State ကိုပြောင်းမယ် (Win/Lose)
   const switchView = (state) => {
     setViewState(state);
-    // Reset timer
     setCountdown(nextRoundDelay);
     setTimerWidth(100);
   };
 
-  // Continue Button Handler
   const handleContinue = () => {
     handleNextRound();
   };
 
+  const submitVote = (vote) => {
+    if (!canVote || voted) return;
+    setLastError(null);
+    ws.send({ type: 'vote_next', vote });
+    setVoted(true);
+  };
+
   return (
     <div className="battle-round-win-body">
-      {/* Main Modal */}
       <div className="result-modal">
-        {/* Round Tag */}
         <div className="round-tag">
           Round {round} / {totalRounds}
         </div>
 
-        {/* State 1: WIN */}
         <div id="state-win" className={viewState === 'win' ? '' : 'hidden'}>
-          <div className="result-icon">🎉</div>
+          <div className="result-icon">WIN</div>
           <h2 className="result-title color-win">Round Won!</h2>
 
           <div className="word-reveal-box">
@@ -103,9 +133,8 @@ const BattleRoundWin = () => {
           </div>
         </div>
 
-        {/* State 2: NO WINNER / LOSE */}
         <div id="state-lose" className={viewState === 'lose' ? '' : 'hidden'}>
-          <div className="result-icon">⏰</div>
+          <div className="result-icon">TIME</div>
           <h2 className="result-title color-lose">Time's Up!</h2>
 
           <div className="word-reveal-box">
@@ -122,55 +151,104 @@ const BattleRoundWin = () => {
           </div>
         </div>
 
-        {/* Timer for Next Round */}
-        <div className="timer-container">
-          <div className="timer-bar">
-            <div 
-              className="timer-fill" 
-              style={{ 
-                width: `${timerWidth}%`,
-                transition: 'width 1s linear'
-              }}
-            ></div>
+        {canVote ? (
+          <div className="timer-container">
+            <div className="timer-text" style={{ marginBottom: '10px' }}>Vote for next round</div>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button
+                onClick={() => submitVote('yes')}
+                disabled={voted}
+                style={{
+                  background: '#2ed573',
+                  color: 'white',
+                  padding: '10px 20px',
+                  borderRadius: '50px',
+                  fontFamily: 'Bitcount Single, monospace',
+                  fontSize: '0.9rem',
+                  fontWeight: 'bold',
+                  cursor: voted ? 'default' : 'pointer',
+                  border: '2px solid white',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}
+              >
+                Vote YES
+              </button>
+              <button
+                onClick={() => submitVote('no')}
+                disabled={voted}
+                style={{
+                  background: '#ff4757',
+                  color: 'white',
+                  padding: '10px 20px',
+                  borderRadius: '50px',
+                  fontFamily: 'Bitcount Single, monospace',
+                  fontSize: '0.9rem',
+                  fontWeight: 'bold',
+                  cursor: voted ? 'default' : 'pointer',
+                  border: '2px solid white',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}
+              >
+                Vote NO
+              </button>
+            </div>
+            {voted && <div className="timer-text" style={{ marginTop: '10px' }}>Vote sent. Waiting for others...</div>}
+            {lastError && <div className="timer-text" style={{ marginTop: '8px', color: '#ff6b81' }}>{lastError.code}: {lastError.message}</div>}
           </div>
-          <div className="timer-text">
-            Next round starts in: <span id="countdown">{countdown}</span>s
-          </div>
-        </div>
+        ) : (
+          <>
+            <div className="timer-container">
+              <div className="timer-bar">
+                <div
+                  className="timer-fill"
+                  style={{
+                    width: `${timerWidth}%`,
+                    transition: 'width 1s linear',
+                  }}
+                ></div>
+              </div>
+              <div className="timer-text">
+                Next round starts in: <span id="countdown">{countdown}</span>s
+              </div>
+            </div>
 
-        {/* Manual Continue Button (Optional) */}
-        <button 
-          onClick={handleContinue}
-          style={{
-            background: 'var(--primary)',
-            color: 'white',
-            border: 'none',
-            padding: '10px 20px',
-            borderRadius: '50px',
-            fontFamily: 'Bitcount Single, monospace',
-            fontSize: '0.9rem',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            marginTop: '10px',
-            border: '2px solid white',
-            textTransform: 'uppercase',
-            letterSpacing: '1px'
-          }}
-        >
-          Continue →
-        </button>
+            <button
+              onClick={handleContinue}
+              style={{
+                background: 'var(--primary)',
+                color: 'white',
+                padding: '10px 20px',
+                borderRadius: '50px',
+                fontFamily: 'Bitcount Single, monospace',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                marginTop: '10px',
+                border: '2px solid white',
+                textTransform: 'uppercase',
+                letterSpacing: '1px',
+              }}
+            >
+              Continue {'->'}
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Demo Controls - Development အတွက်သာ */}
       {process.env.NODE_ENV === 'development' && (
-        <div className="demo-controls" style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '20px',
-          zIndex: 100,
-          display: 'flex',
-          gap: '10px'
-        }}>
+        <div
+          className="demo-controls"
+          style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            zIndex: 100,
+            display: 'flex',
+            gap: '10px',
+          }}
+        >
           <button
             className="demo-btn"
             onClick={() => switchView('win')}
@@ -182,7 +260,7 @@ const BattleRoundWin = () => {
               borderRadius: '8px',
               fontFamily: 'sans-serif',
               fontSize: '0.8rem',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           >
             Show: Win
@@ -198,7 +276,7 @@ const BattleRoundWin = () => {
               borderRadius: '8px',
               fontFamily: 'sans-serif',
               fontSize: '0.8rem',
-              cursor: 'pointer'
+              cursor: 'pointer',
             }}
           >
             Show: No Winner

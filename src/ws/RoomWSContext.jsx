@@ -53,6 +53,15 @@ export function RoomWSProvider({ children }) {
     }
   }, [ws.lastMsg, ws.send]);
 
+  // Drive server-side phase/round timeout transitions and presence updates.
+  useEffect(() => {
+    if (ws.status !== "CONNECTED") return;
+    const id = setInterval(() => {
+      ws.send({ type: "heartbeat" });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [ws.status, ws.send]);
+
   const setAndStoreNickname = useCallback((name) => {
     setNickname(name);
     if (name) localStorage.setItem("dg_nickname", name);

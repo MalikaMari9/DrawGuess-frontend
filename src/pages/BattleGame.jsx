@@ -1,35 +1,47 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useRoomWSContext } from "../ws/RoomWSContext";
 import '../styles/BattleGame.css';
 
 const BattleGame = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { ws } = useRoomWSContext();
+  const snapshot = ws.snapshot || {};
+  const players = snapshot.players || [];
+  const myPid = ws.pid || sessionStorage.getItem("dg_pid");
+  const me = players.find((p) => p.pid === myPid) || {};
+  const myTeam = me.team || null;
+  const myRole = me.role || "";
+  const teamAPlayers = players.filter((p) => p.team === "A").map((p) => p.name || "Player");
+  const teamBPlayers = players.filter((p) => p.team === "B").map((p) => p.name || "Player");
 
-  // Game state from location
-  const {
-    roomCode = 'BTL-5718',
-    round = 1,
-    totalRounds = 5,
-    redTeam = {
-      name: 'Team 1',
-      players: ['Alex', 'Sarah'],
-      score: 0
-    },
-    blueTeam = {
-      name: 'Team 2',
-      players: ['Mike', 'Jess'],
-      score: 0
-    },
-    currentPlayer = 'Alex'
-  } = location.state || {};
+  const round = Number(snapshot.room?.round_no || 1);
+  const redTeam = { name: 'Red Team', players: teamAPlayers };
+  const blueTeam = { name: 'Blue Team', players: teamBPlayers };
+  const currentPlayer = me.name || "Player";
 
   // Team states
-  const [team1Time, setTeam1Time] = useState(60);
-  const [team2Time, setTeam2Time] = useState(60);
+  const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
+  const [roundEndAt, setRoundEndAt] = useState(Number(snapshot.game?.round_end_at || 0));
+  const [guessEndAt, setGuessEndAt] = useState(Number(snapshot.game?.guess_end_at || 0));
   const [team1Strokes, setTeam1Strokes] = useState(0);
   const [team2Strokes, setTeam2Strokes] = useState(0);
-  const maxStrokes = 15;
+  const [maxStrokes, setMaxStrokes] = useState(
+    typeof snapshot.round_config?.strokes_per_phase === "number"
+      ? snapshot.round_config.strokes_per_phase
+      : 15
+  );
+  const [phase, setPhase] = useState(snapshot.game?.phase || "");
+  const [budget, setBudget] = useState({ A: 0, B: 0 });
+  const remainingA = Number(budget?.A ?? maxStrokes);
+  const remainingB = Number(budget?.B ?? maxStrokes);
+  const drawTimeLeft = roundEndAt > 0 ? Math.max(0, roundEndAt - nowSec) : 0;
+  const guessTimeLeft = guessEndAt > 0 ? Math.max(0, guessEndAt - nowSec) : 0;
+  const phaseTimeLeft = phase === "GUESS" ? guessTimeLeft : phase === "DRAW" ? drawTimeLeft : 0;
+  const canGuessA = ws.status === "CONNECTED" && phase === "GUESS" && myRole.includes("guesser") && myTeam === "A";
+  const canGuessB = ws.status === "CONNECTED" && phase === "GUESS" && myRole.includes("guesser") && myTeam === "B";
+  const canDrawA = phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
+  const canDrawB = phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
 
   // Tool states for Team 1
   const [team1Color, setTeam1Color] = useState('#000000');
@@ -60,18 +72,15 @@ const BattleGame = () => {
   const currentStroke2Ref = useRef(null);
   const eraserPath1Ref = useRef([]);
   const eraserPath2Ref = useRef([]);
+  const phaseZeroSnapshotRef = useRef(false);
 
   // ✅ FIXED: Drawing states - missing = operator
   const [isDrawing1, setIsDrawing1] = useState(false);
   const [isDrawing2, setIsDrawing2] = useState(false);
 
   // Chat states
-  const [team1Messages, setTeam1Messages] = useState([
-    { text: 'Is it a dog?', isOwn: false }
-  ]);
-  const [team2Messages, setTeam2Messages] = useState([
-    { text: 'It looks like a sun?', isOwn: true }
-  ]);
+  const [team1Messages, setTeam1Messages] = useState([]);
+  const [team2Messages, setTeam2Messages] = useState([]);
   const [team1Input, setTeam1Input] = useState('');
   const [team2Input, setTeam2Input] = useState('');
 
@@ -87,6 +96,9 @@ const BattleGame = () => {
   // Score state
   const [redScore, setRedScore] = useState(0);
   const [blueScore, setBlueScore] = useState(0);
+  const sabotageArmed1Ref = useRef(false);
+  const sabotageArmed2Ref = useRef(false);
+  const [lastError, setLastError] = useState(null);
 
   // Initialize canvases
   useEffect(() => {
@@ -102,6 +114,36 @@ const BattleGame = () => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (ws.status === "CONNECTED") {
+      ws.send({ type: "snapshot" });
+    }
+  }, [ws.status, ws.send]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    setRoundEndAt(Number(snapshot.game?.round_end_at || 0));
+    setGuessEndAt(Number(snapshot.game?.guess_end_at || 0));
+  }, [snapshot.game?.round_end_at, snapshot.game?.guess_end_at]);
+
+  useEffect(() => {
+    if (phaseTimeLeft > 0) {
+      phaseZeroSnapshotRef.current = false;
+      return;
+    }
+    if (!phase || phase === "VOTING") return;
+    if (ws.status !== "CONNECTED") return;
+    if (phaseZeroSnapshotRef.current) return;
+    phaseZeroSnapshotRef.current = true;
+    ws.send({ type: "snapshot" });
+  }, [phaseTimeLeft, phase, ws.status, ws.send]);
 
   const handleResize = () => {
     resizeCanvas(1);
@@ -136,6 +178,226 @@ const BattleGame = () => {
     ctx.restore();
   };
 
+  const convertOpToStroke = (op) => {
+    const t = op?.t || op?.type || "line";
+    const p = op?.p || op || {};
+    const color = p.c || "#000000";
+    const size = Math.max(1, Number(p.w || 3));
+    if (p.clear) {
+      return { type: "clear" };
+    }
+    if (p.erase) {
+      const pts = p.pts || [];
+      return {
+        type: "erase",
+        size,
+        points: pts.map(([x, y]) => ({ x, y })),
+      };
+    }
+    if (t === "circle") {
+      return {
+        type: "circle",
+        color,
+        size,
+        center: { x: Number(p.cx || 0), y: Number(p.cy || 0) },
+        radius: Number(p.r || 0),
+      };
+    }
+    const pts = p.pts || [];
+    if (pts.length >= 2) {
+      return {
+        type: "free",
+        color,
+        size,
+        points: pts.map(([x, y]) => ({ x, y })),
+      };
+    }
+    return null;
+  };
+
+  const strokeToOp = (stroke) => {
+    if (!stroke) return null;
+    if (stroke.type === "circle") {
+      return {
+        t: "circle",
+        p: { cx: stroke.center.x, cy: stroke.center.y, r: stroke.radius, c: stroke.color, w: stroke.size },
+      };
+    }
+    if (stroke.type === "line") {
+      return {
+        t: "line",
+        p: { pts: [[stroke.start.x, stroke.start.y], [stroke.end.x, stroke.end.y]], c: stroke.color, w: stroke.size },
+      };
+    }
+    if (stroke.type === "free") {
+      return {
+        t: "line",
+        p: { pts: stroke.points.map((pt) => [pt.x, pt.y]), c: stroke.color, w: stroke.size },
+      };
+    }
+    return null;
+  };
+
+  useEffect(() => {
+    const m = ws.lastMsg;
+    if (!m) return;
+
+    if (m.type === "room_snapshot") {
+      setPhase(m.game?.phase || "");
+      setRoundEndAt(Number(m.game?.round_end_at || 0));
+      setGuessEndAt(Number(m.game?.guess_end_at || 0));
+      const snapBudget = m.game?.budget;
+      if (snapBudget && (typeof snapBudget.A === "number" || typeof snapBudget.B === "number")) {
+        setBudget({
+          A: Number(snapBudget.A ?? 0),
+          B: Number(snapBudget.B ?? 0),
+        });
+      }
+      const sp = m.round_config?.strokes_per_phase;
+      if (typeof sp === "number" && sp > 0) setMaxStrokes(sp);
+      const score = m.game?.score || {};
+      if (typeof score.A === "number") setRedScore(score.A);
+      if (typeof score.B === "number") setBlueScore(score.B);
+      if (typeof sp === "number" && sp > 0 && snapBudget) {
+        if (typeof snapBudget.A === "number") setTeam1Strokes(Math.max(0, sp - Number(snapBudget.A)));
+        if (typeof snapBudget.B === "number") setTeam2Strokes(Math.max(0, sp - Number(snapBudget.B)));
+      }
+      const ops = Array.isArray(m.ops) ? m.ops : [];
+      if (ops.length > 0) {
+        strokes1Ref.current = [];
+        strokes2Ref.current = [];
+        ops.forEach((o) => {
+          const canvas = o.canvas || null;
+          const st = convertOpToStroke(o.op || o);
+          if (!st) return;
+          if (st.type === "clear") {
+            if (canvas === "A") strokes1Ref.current = [];
+            else if (canvas === "B") strokes2Ref.current = [];
+            return;
+          }
+          if (st.type === "erase") {
+            const radius = Math.max(6, (st.size || 6) * 1.5);
+            st.points.forEach((pt) => {
+              if (canvas === "A") eraseAt(1, pt, radius);
+              else if (canvas === "B") eraseAt(2, pt, radius);
+            });
+            return;
+          }
+          if (canvas === "A") strokes1Ref.current.push(st);
+          else if (canvas === "B") strokes2Ref.current.push(st);
+        });
+        renderStrokes(1);
+        renderStrokes(2);
+      }
+    }
+
+    if (m.type === "op_broadcast") {
+      const canvas = m.canvas || null;
+      const st = convertOpToStroke(m.op);
+      if (!st) return;
+      // Avoid double-applying our own ops on our own canvas (we already rendered locally)
+      const myPidNow = ws.pid || localStorage.getItem("dg_pid");
+      const myTeamNow = myTeam;
+      if (m.by === myPidNow && canvas && canvas === myTeamNow) {
+        return;
+      }
+      if (st.type === "clear") {
+        if (canvas === "A") {
+          strokes1Ref.current = [];
+          renderStrokes(1);
+        } else if (canvas === "B") {
+          strokes2Ref.current = [];
+          renderStrokes(2);
+        }
+        return;
+      }
+      if (st.type === "erase") {
+        const radius = Math.max(6, (st.size || 6) * 1.5);
+        if (canvas === "A") {
+          st.points.forEach((pt) => eraseAt(1, pt, radius));
+          renderStrokes(1);
+        } else if (canvas === "B") {
+          st.points.forEach((pt) => eraseAt(2, pt, radius));
+          renderStrokes(2);
+        }
+        return;
+      }
+      if (canvas === "A") {
+        strokes1Ref.current.push(st);
+        renderStrokes(1);
+      } else if (canvas === "B") {
+        strokes2Ref.current.push(st);
+        renderStrokes(2);
+      }
+    }
+
+    if (m.type === "guess_chat") {
+      const pid = m.pid;
+      const isTeamA = players.find((x) => x.pid === pid)?.team === "A";
+      const line = { text: m.text || "", isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")) };
+      if (isTeamA) {
+        setTeam1Messages((prev) => [...prev, line]);
+      } else {
+        setTeam2Messages((prev) => [...prev, line]);
+      }
+    }
+
+    if (m.type === "guess_result") {
+      const pid = m.by;
+      const isTeamA = players.find((x) => x.pid === pid)?.team === "A";
+      const prefix = m.correct ? "✓ Correct:" : "✗ Wrong:";
+      const line = { text: `${prefix} ${m.text || ""}`, isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")) };
+      if (isTeamA) {
+        setTeam1Messages((prev) => [...prev, line]);
+      } else {
+        setTeam2Messages((prev) => [...prev, line]);
+      }
+    }
+
+    if (m.type === "budget_update") {
+      const b = m.budget || {};
+      setBudget(b);
+      const sp = typeof snapshot.round_config?.strokes_per_phase === "number" ? snapshot.round_config.strokes_per_phase : maxStrokes;
+      if (typeof b.A === "number") setTeam1Strokes(Math.max(0, sp - b.A));
+      if (typeof b.B === "number") setTeam2Strokes(Math.max(0, sp - b.B));
+    }
+
+    if (m.type === "phase_changed") {
+      setPhase(m.phase || "");
+      ws.send({ type: "snapshot" });
+      setTeam1SabotageUsed(false);
+      setTeam2SabotageUsed(false);
+    }
+
+    if (m.type === "sabotage_used") {
+      const byPid = m.by;
+      const p = players.find((x) => x.pid === byPid);
+      const team = p?.team;
+      if (team === "A") setTeam1SabotageUsed(true);
+      if (team === "B") setTeam2SabotageUsed(true);
+      sabotageArmed1Ref.current = false;
+      sabotageArmed2Ref.current = false;
+    }
+
+    if (m.type === "round_end") {
+      navigate("/battle-round-win");
+    }
+
+    if (m.type === "room_state_changed") {
+      if (m.state === "ROUND_END") navigate("/battle-round-win");
+      if (m.state === "ROLE_PICK") navigate("/role-pick");
+      if (m.state === "CONFIG") navigate("/waiting-room");
+    }
+
+    if (m.type === "error") {
+      setLastError(m);
+      const code = m.code || "";
+      if (code.includes("SABOTAGE") || code === "INSUFFICIENT_BUDGET" || code === "NO_BUDGET") {
+        sabotageArmed1Ref.current = false;
+        sabotageArmed2Ref.current = false;
+      }
+    }
+  }, [ws.lastMsg, players, ws.pid, ws.send, navigate, snapshot.round_config, maxStrokes]);
   const renderStrokes = (teamId) => {
     const canvas = teamId === 1 ? canvas1Ref.current : canvas2Ref.current;
     const ctx = teamId === 1 ? ctx1Ref.current : ctx2Ref.current;
@@ -207,21 +469,12 @@ const BattleGame = () => {
     renderStrokes(teamId);
   };
 
-  // Timer effect
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTeam1Time((prev) => (prev > 0 ? prev - 1 : 0));
-      setTeam2Time((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
   // Drawing functions for Team 1
   const startDrawing1 = useCallback(
     (e) => {
       e.preventDefault();
-      if (team1Strokes >= maxStrokes && team1Mode === 'draw') return;
+      if (!canDrawA) return;
+      if (team1Mode === 'draw' && remainingA <= 0) return;
 
       setIsDrawing1(true);
       const { x, y } = getCanvasCoordinates(e, canvas1Ref.current);
@@ -273,7 +526,7 @@ const BattleGame = () => {
         };
       }
     },
-    [team1Strokes, team1Mode, team1Size, team1Color, team1Brush]
+    [canDrawA, remainingA, team1Mode, team1Size, team1Color, team1Brush]
   );
 
   const draw1 = useCallback(
@@ -318,8 +571,18 @@ const BattleGame = () => {
 
   const stopDrawing1 = useCallback(() => {
     if (isDrawing1) {
-      if (team1Mode === 'draw' && team1Strokes < maxStrokes) {
-        setTeam1Strokes((prev) => prev + 1);
+      if (team1Mode === 'erase') {
+        // send erase op
+        const path = eraserPath1Ref.current || [];
+        eraserPath1Ref.current = [];
+        if (path.length >= 2) {
+          const canSendErase = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
+          if (canSendErase) {
+            const pts = path.map((pt) => [pt.x, pt.y]);
+            const op = { t: "line", p: { pts, w: team1Size, erase: 1 } };
+            ws.send({ type: "draw_op", canvas: "A", op });
+          }
+        }
       }
     }
     setIsDrawing1(false);
@@ -327,20 +590,37 @@ const BattleGame = () => {
       if (team1Mode === 'draw') {
         const stroke = currentStroke1Ref.current;
         if (stroke) {
-          strokes1Ref.current.push(stroke);
+          const canSend = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
+          const op = strokeToOp(stroke);
+          const sabotageArmed = sabotageArmed1Ref.current;
           currentStroke1Ref.current = null;
-          renderStrokes(1);
+          if (canSend && op) {
+            if (sabotageArmed) {
+              ws.send({ type: "sabotage", target: "B", op });
+              sabotageArmed1Ref.current = false;
+              renderStrokes(1);
+            } else {
+              strokes1Ref.current.push(stroke);
+              renderStrokes(1);
+              ws.send({ type: "draw_op", canvas: "A", op });
+            }
+          } else {
+            // Keep local-only preview if send is not possible.
+            strokes1Ref.current.push(stroke);
+            renderStrokes(1);
+          }
         }
       }
       ctx1Ref.current.closePath();
     }
-  }, [isDrawing1, team1Mode, team1Strokes]);
+  }, [isDrawing1, team1Mode, ws.status, phase, myTeam, myRole]);
 
   // Drawing functions for Team 2
   const startDrawing2 = useCallback(
     (e) => {
       e.preventDefault();
-      if (team2Strokes >= maxStrokes && team2Mode === 'draw') return;
+      if (!canDrawB) return;
+      if (team2Mode === 'draw' && remainingB <= 0) return;
 
       setIsDrawing2(true);
       const { x, y } = getCanvasCoordinates(e, canvas2Ref.current);
@@ -392,7 +672,7 @@ const BattleGame = () => {
         };
       }
     },
-    [team2Strokes, team2Mode, team2Size, team2Color, team2Brush]
+    [canDrawB, remainingB, team2Mode, team2Size, team2Color, team2Brush]
   );
 
   const draw2 = useCallback(
@@ -437,8 +717,18 @@ const BattleGame = () => {
 
   const stopDrawing2 = useCallback(() => {
     if (isDrawing2) {
-      if (team2Mode === 'draw' && team2Strokes < maxStrokes) {
-        setTeam2Strokes((prev) => prev + 1);
+      if (team2Mode === 'erase') {
+        // send erase op
+        const path = eraserPath2Ref.current || [];
+        eraserPath2Ref.current = [];
+        if (path.length >= 2) {
+          const canSendErase = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
+          if (canSendErase) {
+            const pts = path.map((pt) => [pt.x, pt.y]);
+            const op = { t: "line", p: { pts, w: team2Size, erase: 1 } };
+            ws.send({ type: "draw_op", canvas: "B", op });
+          }
+        }
       }
     }
     setIsDrawing2(false);
@@ -446,14 +736,30 @@ const BattleGame = () => {
       if (team2Mode === 'draw') {
         const stroke = currentStroke2Ref.current;
         if (stroke) {
-          strokes2Ref.current.push(stroke);
+          const canSend = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
+          const op = strokeToOp(stroke);
+          const sabotageArmed = sabotageArmed2Ref.current;
           currentStroke2Ref.current = null;
-          renderStrokes(2);
+          if (canSend && op) {
+            if (sabotageArmed) {
+              ws.send({ type: "sabotage", target: "A", op });
+              sabotageArmed2Ref.current = false;
+              renderStrokes(2);
+            } else {
+              strokes2Ref.current.push(stroke);
+              renderStrokes(2);
+              ws.send({ type: "draw_op", canvas: "B", op });
+            }
+          } else {
+            // Keep local-only preview if send is not possible.
+            strokes2Ref.current.push(stroke);
+            renderStrokes(2);
+          }
         }
       }
       ctx2Ref.current.closePath();
     }
-  }, [isDrawing2, team2Mode, team2Strokes]);
+  }, [isDrawing2, team2Mode, ws.status, phase, myTeam, myRole]);
 
   const getCanvasCoordinates = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
@@ -565,6 +871,11 @@ const BattleGame = () => {
       strokes1Ref.current = [];
       currentStroke1Ref.current = null;
       renderStrokes(1);
+      const canSendClear = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
+      if (canSendClear) {
+        const op = { t: "line", p: { pts: [[0, 0], [0, 0]], w: team1Size, clear: 1 } };
+        ws.send({ type: "draw_op", canvas: "A", op });
+      }
     }
   };
 
@@ -575,18 +886,22 @@ const BattleGame = () => {
       strokes2Ref.current = [];
       currentStroke2Ref.current = null;
       renderStrokes(2);
+      const canSendClear = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
+      if (canSendClear) {
+        const op = { t: "line", p: { pts: [[0, 0], [0, 0]], w: team2Size, clear: 1 } };
+        ws.send({ type: "draw_op", canvas: "B", op });
+      }
     }
   };
 
   // Sabotage function for Team 1
   const handleSabotageTeam1 = () => {
+    if (!canDrawA) return;
     if (team1SabotageUsed) {
       alert('Sabotage already used!');
       return;
     }
-
-    // Add 180 seconds to opponent's time (Team 2)
-    setTeam2Time((prev) => prev + 180);
+    sabotageArmed1Ref.current = true;
 
     // Shake opponent's column
     const opponentCol = document.getElementById('col2');
@@ -596,9 +911,6 @@ const BattleGame = () => {
         opponentCol.classList.remove('shake');
       }, 500);
     }
-
-    // Mark sabotage as used
-    setTeam1SabotageUsed(true);
 
     // Visual feedback
     const myBtn = document.getElementById('sab1');
@@ -614,13 +926,12 @@ const BattleGame = () => {
 
   // Sabotage function for Team 2
   const handleSabotageTeam2 = () => {
+    if (!canDrawB) return;
     if (team2SabotageUsed) {
       alert('Sabotage already used!');
       return;
     }
-
-    // Add 180 seconds to opponent's time (Team 1)
-    setTeam1Time((prev) => prev + 180);
+    sabotageArmed2Ref.current = true;
 
     // Shake opponent's column
     const opponentCol = document.getElementById('col1');
@@ -630,9 +941,6 @@ const BattleGame = () => {
         opponentCol.classList.remove('shake');
       }, 500);
     }
-
-    // Mark sabotage as used
-    setTeam2SabotageUsed(true);
 
     // Visual feedback
     const myBtn = document.getElementById('sab2');
@@ -649,14 +957,18 @@ const BattleGame = () => {
   // Chat functions
   const sendMessage = (team) => {
     if (team === 1) {
-      if (!team1Input.trim()) return;
-      setTeam1Messages((prev) => [...prev, { text: team1Input, isOwn: false }]);
+      if (!canGuessA) return;
+      const text = team1Input.trim();
+      if (!text) return;
+      ws.send({ type: "guess", text });
       setTeam1Input('');
-    } else {
-      if (!team2Input.trim()) return;
-      setTeam2Messages((prev) => [...prev, { text: team2Input, isOwn: true }]);
-      setTeam2Input('');
+      return;
     }
+    if (!canGuessB) return;
+    const text = team2Input.trim();
+    if (!text) return;
+    ws.send({ type: "guess", text });
+    setTeam2Input('');
   };
 
   const handleKeyPress = (e, team) => {
@@ -729,19 +1041,19 @@ const BattleGame = () => {
                 {redTeam.name}
               </span>
             </div>
-            <div className="player-names">{redTeam.players.join(' • ')}</div>
+            <div className="player-names">{teamAPlayers.join(' • ')}</div>
             <div className="stats-row">
               <div className="stat-item">
                 TIME{' '}
-                <span className="stat-val" style={{ color: team1Time > 90 ? '#ff4757' : '#fff' }}>
-                  {team1Time}
+                <span className="stat-val" style={{ color: phaseTimeLeft <= 10 ? '#ff4757' : '#fff' }}>
+                  {phaseTimeLeft}
                 </span>
               </div>
               <div className="stat-item">
                 STROKES{' '}
                 <span
                   className="stat-val"
-                  style={{ color: team1Strokes >= maxStrokes ? '#ff4757' : '#fff' }}
+                  style={{ color: remainingA <= 0 ? '#ff4757' : '#fff' }}
                 >
                   {team1Strokes}/{maxStrokes}
                 </span>
@@ -880,8 +1192,9 @@ const BattleGame = () => {
                   value={team1Input}
                   onChange={(e) => setTeam1Input(e.target.value)}
                   onKeyPress={(e) => handleKeyPress(e, 1)}
+                  disabled={!canGuessA}
                 />
-                <button className="send-btn send-red" onClick={() => sendMessage(1)}>
+                <button className="send-btn send-red" onClick={() => sendMessage(1)} disabled={!canGuessA}>
                   SEND
                 </button>
               </div>
@@ -898,19 +1211,19 @@ const BattleGame = () => {
                 {blueTeam.name}
               </span>
             </div>
-            <div className="player-names">{blueTeam.players.join(' • ')}</div>
+            <div className="player-names">{teamBPlayers.join(' • ')}</div>
             <div className="stats-row">
               <div className="stat-item">
                 TIME{' '}
-                <span className="stat-val" style={{ color: team2Time > 90 ? '#ff4757' : '#fff' }}>
-                  {team2Time}
+                <span className="stat-val" style={{ color: phaseTimeLeft <= 10 ? '#ff4757' : '#fff' }}>
+                  {phaseTimeLeft}
                 </span>
               </div>
               <div className="stat-item">
                 STROKES{' '}
                 <span
                   className="stat-val"
-                  style={{ color: team2Strokes >= maxStrokes ? '#ff4757' : '#fff' }}
+                  style={{ color: remainingB <= 0 ? '#ff4757' : '#fff' }}
                 >
                   {team2Strokes}/{maxStrokes}
                 </span>
@@ -1049,8 +1362,9 @@ const BattleGame = () => {
                   value={team2Input}
                   onChange={(e) => setTeam2Input(e.target.value)}
                   onKeyPress={(e) => handleKeyPress(e, 2)}
+                  disabled={!canGuessB}
                 />
-                <button className="send-btn send-blue" onClick={() => sendMessage(2)}>
+                <button className="send-btn send-blue" onClick={() => sendMessage(2)} disabled={!canGuessB}>
                   SEND
                 </button>
               </div>
@@ -1078,10 +1392,10 @@ const BattleGame = () => {
             </div>
             <div className="player-row">
               <div className="p-avatar" style={{ background: 'var(--c-blue)' }}>
-                {blueTeam.players[0]?.charAt(0) || '2'}
+                {(teamBPlayers[0] || 'P').charAt(0)}
               </div>
               <div className="p-info">
-                <div className="p-name">{blueTeam.players[0] || 'Player 2'}</div>
+                <div className="p-name">{teamBPlayers[0] || 'Player'}</div>
                 <div className="p-score">Score: {blueScore}</div>
               </div>
             </div>
