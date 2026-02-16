@@ -24,8 +24,6 @@ const BattleGame = () => {
   const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
   const [roundEndAt, setRoundEndAt] = useState(Number(snapshot.game?.round_end_at || 0));
   const [guessEndAt, setGuessEndAt] = useState(Number(snapshot.game?.guess_end_at || 0));
-  const [team1Strokes, setTeam1Strokes] = useState(0);
-  const [team2Strokes, setTeam2Strokes] = useState(0);
   const [maxStrokes, setMaxStrokes] = useState(
     typeof snapshot.round_config?.strokes_per_phase === "number"
       ? snapshot.round_config.strokes_per_phase
@@ -33,8 +31,15 @@ const BattleGame = () => {
   );
   const [phase, setPhase] = useState(snapshot.game?.phase || "");
   const [budget, setBudget] = useState({ A: 0, B: 0 });
+  const [sabotageCooldown, setSabotageCooldown] = useState({ A: 0, B: 0 });
   const remainingA = Number(budget?.A ?? maxStrokes);
   const remainingB = Number(budget?.B ?? maxStrokes);
+  const team1Strokes = Math.max(0, maxStrokes - remainingA);
+  const team2Strokes = Math.max(0, maxStrokes - remainingB);
+  const team1CooldownLeft = Math.max(0, Number(sabotageCooldown.A || 0) - nowSec);
+  const team2CooldownLeft = Math.max(0, Number(sabotageCooldown.B || 0) - nowSec);
+  const team1SabotageOnCooldown = team1CooldownLeft > 0;
+  const team2SabotageOnCooldown = team2CooldownLeft > 0;
   const drawTimeLeft = roundEndAt > 0 ? Math.max(0, roundEndAt - nowSec) : 0;
   const guessTimeLeft = guessEndAt > 0 ? Math.max(0, guessEndAt - nowSec) : 0;
   const phaseTimeLeft = phase === "GUESS" ? guessTimeLeft : phase === "DRAW" ? drawTimeLeft : 0;
@@ -48,14 +53,12 @@ const BattleGame = () => {
   const [team1Size, setTeam1Size] = useState(6);
   const [team1Mode, setTeam1Mode] = useState('draw');
   const [team1Brush, setTeam1Brush] = useState('line');
-  const [team1SabotageUsed, setTeam1SabotageUsed] = useState(false);
 
   // Tool states for Team 2
   const [team2Color, setTeam2Color] = useState('#000000');
   const [team2Size, setTeam2Size] = useState(6);
   const [team2Mode, setTeam2Mode] = useState('draw');
   const [team2Brush, setTeam2Brush] = useState('line');
-  const [team2SabotageUsed, setTeam2SabotageUsed] = useState(false);
 
   // Canvas refs
   const canvas1Ref = useRef(null);
@@ -83,6 +86,7 @@ const BattleGame = () => {
   const [team2Messages, setTeam2Messages] = useState([]);
   const [team1Input, setTeam1Input] = useState('');
   const [team2Input, setTeam2Input] = useState('');
+  const [hasGuessedThisPhase, setHasGuessedThisPhase] = useState(false);
 
   // Modal states
   const [exitModalOpen, setExitModalOpen] = useState(false);
@@ -180,7 +184,10 @@ const BattleGame = () => {
 
   const convertOpToStroke = (op) => {
     const t = op?.t || op?.type || "line";
-    const p = op?.p || op || {};
+    let p = op?.p || op || {};
+    if (p && typeof p === "object" && p.p && typeof p.p === "object") {
+      p = { ...p.p, ...p };
+    }
     const color = p.c || "#000000";
     const size = Math.max(1, Number(p.w || 3));
     if (p.clear) {
@@ -253,15 +260,19 @@ const BattleGame = () => {
           B: Number(snapBudget.B ?? 0),
         });
       }
+      const snapCooldown = m.game?.cooldown || {};
+      setSabotageCooldown({
+        A: Number(snapCooldown.sabotage_next_ts_A || 0),
+        B: Number(snapCooldown.sabotage_next_ts_B || 0),
+      });
       const sp = m.round_config?.strokes_per_phase;
       if (typeof sp === "number" && sp > 0) setMaxStrokes(sp);
       const score = m.game?.score || {};
       if (typeof score.A === "number") setRedScore(score.A);
       if (typeof score.B === "number") setBlueScore(score.B);
-      if (typeof sp === "number" && sp > 0 && snapBudget) {
-        if (typeof snapBudget.A === "number") setTeam1Strokes(Math.max(0, sp - Number(snapBudget.A)));
-        if (typeof snapBudget.B === "number") setTeam2Strokes(Math.max(0, sp - Number(snapBudget.B)));
-      }
+      const snapPhaseGuesses = m.game?.phase_guesses || {};
+      const myPidNow = ws.pid || sessionStorage.getItem("dg_pid");
+      setHasGuessedThisPhase(Boolean(myPidNow && snapPhaseGuesses[myPidNow]));
       const ops = Array.isArray(m.ops) ? m.ops : [];
       if (ops.length > 0) {
         strokes1Ref.current = [];
@@ -347,6 +358,9 @@ const BattleGame = () => {
       const isTeamA = players.find((x) => x.pid === pid)?.team === "A";
       const prefix = m.correct ? "✓ Correct:" : "✗ Wrong:";
       const line = { text: `${prefix} ${m.text || ""}`, isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")) };
+      if (pid === (ws.pid || sessionStorage.getItem("dg_pid"))) {
+        setHasGuessedThisPhase(true);
+      }
       if (isTeamA) {
         setTeam1Messages((prev) => [...prev, line]);
       } else {
@@ -356,25 +370,25 @@ const BattleGame = () => {
 
     if (m.type === "budget_update") {
       const b = m.budget || {};
-      setBudget(b);
-      const sp = typeof snapshot.round_config?.strokes_per_phase === "number" ? snapshot.round_config.strokes_per_phase : maxStrokes;
-      if (typeof b.A === "number") setTeam1Strokes(Math.max(0, sp - b.A));
-      if (typeof b.B === "number") setTeam2Strokes(Math.max(0, sp - b.B));
+      setBudget({
+        A: Number(b.A ?? 0),
+        B: Number(b.B ?? 0),
+      });
     }
 
     if (m.type === "phase_changed") {
       setPhase(m.phase || "");
+      setHasGuessedThisPhase(false);
       ws.send({ type: "snapshot" });
-      setTeam1SabotageUsed(false);
-      setTeam2SabotageUsed(false);
     }
 
     if (m.type === "sabotage_used") {
       const byPid = m.by;
       const p = players.find((x) => x.pid === byPid);
       const team = p?.team;
-      if (team === "A") setTeam1SabotageUsed(true);
-      if (team === "B") setTeam2SabotageUsed(true);
+      if (team === "A" || team === "B") {
+        setSabotageCooldown((prev) => ({ ...prev, [team]: Number(m.cooldown_until || 0) }));
+      }
       sabotageArmed1Ref.current = false;
       sabotageArmed2Ref.current = false;
     }
@@ -395,6 +409,7 @@ const BattleGame = () => {
       if (code.includes("SABOTAGE") || code === "INSUFFICIENT_BUDGET" || code === "NO_BUDGET") {
         sabotageArmed1Ref.current = false;
         sabotageArmed2Ref.current = false;
+        ws.send({ type: "snapshot" });
       }
     }
   }, [ws.lastMsg, players, ws.pid, ws.send, navigate, snapshot.round_config, maxStrokes]);
@@ -897,8 +912,12 @@ const BattleGame = () => {
   // Sabotage function for Team 1
   const handleSabotageTeam1 = () => {
     if (!canDrawA) return;
-    if (team1SabotageUsed) {
-      alert('Sabotage already used!');
+    if (remainingA <= 0) {
+      alert('Not enough strokes for sabotage.');
+      return;
+    }
+    if (team1SabotageOnCooldown) {
+      alert(`Sabotage on cooldown (${team1CooldownLeft}s).`);
       return;
     }
     sabotageArmed1Ref.current = true;
@@ -927,8 +946,12 @@ const BattleGame = () => {
   // Sabotage function for Team 2
   const handleSabotageTeam2 = () => {
     if (!canDrawB) return;
-    if (team2SabotageUsed) {
-      alert('Sabotage already used!');
+    if (remainingB <= 0) {
+      alert('Not enough strokes for sabotage.');
+      return;
+    }
+    if (team2SabotageOnCooldown) {
+      alert(`Sabotage on cooldown (${team2CooldownLeft}s).`);
       return;
     }
     sabotageArmed2Ref.current = true;
@@ -957,14 +980,14 @@ const BattleGame = () => {
   // Chat functions
   const sendMessage = (team) => {
     if (team === 1) {
-      if (!canGuessA) return;
+      if (!canGuessA || hasGuessedThisPhase) return;
       const text = team1Input.trim();
       if (!text) return;
       ws.send({ type: "guess", text });
       setTeam1Input('');
       return;
     }
-    if (!canGuessB) return;
+    if (!canGuessB || hasGuessedThisPhase) return;
     const text = team2Input.trim();
     if (!text) return;
     ws.send({ type: "guess", text });
@@ -1071,11 +1094,11 @@ const BattleGame = () => {
             {/* Tools Sidebar */}
             <div className="tools-sidebar">
               {/* Sabotage Button */}
-              <div
-                id="sab1"
-                className={`sabotage-btn ${team1SabotageUsed ? 'used' : ''}`}
-                onClick={handleSabotageTeam1}
-              >
+                <div
+                  id="sab1"
+                  className={`sabotage-btn ${team1SabotageOnCooldown ? 'used' : ''}`}
+                  onClick={handleSabotageTeam1}
+                >
                 🔥
               </div>
 
@@ -1192,9 +1215,9 @@ const BattleGame = () => {
                   value={team1Input}
                   onChange={(e) => setTeam1Input(e.target.value)}
                   onKeyPress={(e) => handleKeyPress(e, 1)}
-                  disabled={!canGuessA}
+                  disabled={!canGuessA || hasGuessedThisPhase}
                 />
-                <button className="send-btn send-red" onClick={() => sendMessage(1)} disabled={!canGuessA}>
+                <button className="send-btn send-red" onClick={() => sendMessage(1)} disabled={!canGuessA || hasGuessedThisPhase}>
                   SEND
                 </button>
               </div>
@@ -1241,11 +1264,11 @@ const BattleGame = () => {
             {/* Tools Sidebar */}
             <div className="tools-sidebar">
               {/* Sabotage Button */}
-              <div
-                id="sab2"
-                className={`sabotage-btn ${team2SabotageUsed ? 'used' : ''}`}
-                onClick={handleSabotageTeam2}
-              >
+                <div
+                  id="sab2"
+                  className={`sabotage-btn ${team2SabotageOnCooldown ? 'used' : ''}`}
+                  onClick={handleSabotageTeam2}
+                >
                 🔥
               </div>
 
@@ -1362,9 +1385,9 @@ const BattleGame = () => {
                   value={team2Input}
                   onChange={(e) => setTeam2Input(e.target.value)}
                   onKeyPress={(e) => handleKeyPress(e, 2)}
-                  disabled={!canGuessB}
+                  disabled={!canGuessB || hasGuessedThisPhase}
                 />
-                <button className="send-btn send-blue" onClick={() => sendMessage(2)} disabled={!canGuessB}>
+                <button className="send-btn send-blue" onClick={() => sendMessage(2)} disabled={!canGuessB || hasGuessedThisPhase}>
                   SEND
                 </button>
               </div>
