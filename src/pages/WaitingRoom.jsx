@@ -15,8 +15,8 @@ const WaitingRoom = () => {
   const mode = room.mode || "SINGLE";
   const myPid = ws.pid || localStorage.getItem("dg_pid");
   const me = players.find((p) => p.pid === myPid) || {};
+  const myRole = me.role || "";
   const isGM = room.gm_pid && myPid && room.gm_pid === myPid;
-  const myRole = me.role || (isGM ? "gm" : "");
   const isDrawer =
     myRole.includes("drawer") ||
     (myPid && (myPid === roles?.drawerA || myPid === roles?.drawerB || myPid === roles?.drawer));
@@ -44,7 +44,6 @@ const WaitingRoom = () => {
   const [countdown, setCountdown] = useState(null);
   const [secretReveal, setSecretReveal] = useState(false);
   const [startTriggered, setStartTriggered] = useState(false);
-  const secretRequestedRef = useRef(false);
 
   const secretWord = roundConfig.secret_word || "";
   const configReady = Boolean(roundConfig.config_ready);
@@ -55,12 +54,6 @@ const WaitingRoom = () => {
       navigate(mode === "VS" ? "/battle-game" : "/single-game");
     }
   }, [room.state, navigate, mode]);
-
-  useEffect(() => {
-    if (ws.lastMsg) {
-      console.log("WS IN", ws.lastMsg);
-    }
-  }, [ws.lastMsg]);
 
   useEffect(() => {
     if (ws.status === "CONNECTED") {
@@ -81,18 +74,6 @@ const WaitingRoom = () => {
       setConfigSent(true);
     }
   }, [secretWord, configReady, configSent]);
-
-  useEffect(() => {
-    if (!isDrawer) return;
-    if (!configReady) return;
-    if (secretWord) {
-      secretRequestedRef.current = false;
-      return;
-    }
-    if (secretRequestedRef.current) return;
-    secretRequestedRef.current = true;
-    ws.send({ type: "snapshot" });
-  }, [isDrawer, configReady, secretWord, ws]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -172,17 +153,12 @@ const WaitingRoom = () => {
               </div>
             </div>
           )}
-          {isDrawer && (secretReveal || configReady) && secretWord && (
+          {isDrawer && secretReveal && secretWord && (
             <div className="secret-word">
               Secret word: <span>{secretWord}</span>
             </div>
           )}
-          {isDrawer && (secretReveal || configReady) && !secretWord && (
-            <div className="secret-word">
-              Waiting for secret word...
-            </div>
-          )}
-          {!isDrawer && (secretReveal || configReady) && (
+          {!isDrawer && secretReveal && (
             <div className="secret-word">
               Secret word is hidden. Get ready to guess.
             </div>
