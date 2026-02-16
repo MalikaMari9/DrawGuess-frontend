@@ -62,12 +62,13 @@ const WaitingRoom = () => {
   }, [ws.status, room.state, configReady, ws.send]);
 
   useEffect(() => {
+    if (!isGM) return;
     if (!configSent || countdownInitialized.current) return;
     countdownInitialized.current = true;
     setSecretReveal(true);
     const t = setTimeout(() => setCountdown(10), 5000);
     return () => clearTimeout(t);
-  }, [configSent]);
+  }, [configSent, isGM]);
 
   useEffect(() => {
     if (!configSent && (configReady || secretWord)) {
@@ -76,9 +77,34 @@ const WaitingRoom = () => {
   }, [secretWord, configReady, configSent]);
 
   useEffect(() => {
+    if (!isGM) return;
+    if (!configReady) return;
+    if (typeof roundConfig.secret_word === "string") setSecret(roundConfig.secret_word);
+    if (roundConfig.time_limit_sec != null) setTimeLimit(Number(roundConfig.time_limit_sec));
+    if (mode === "SINGLE") {
+      if (roundConfig.stroke_limit != null) setStrokeLimit(Number(roundConfig.stroke_limit));
+    } else {
+      if (roundConfig.strokes_per_phase != null) setStrokesPerPhase(Number(roundConfig.strokes_per_phase));
+      if (roundConfig.guess_window_sec != null) setGuessWindowSec(Number(roundConfig.guess_window_sec));
+    }
+  }, [isGM, configReady, mode, roundConfig]);
+
+  useEffect(() => {
+    if (!isDrawer) return;
+    if (!configReady) return;
+    if (secretWord) {
+      secretRequestedRef.current = false;
+      return;
+    }
+    if (secretRequestedRef.current) return;
+    secretRequestedRef.current = true;
+    ws.send({ type: "snapshot" });
+  }, [isDrawer, configReady, secretWord, ws]);
+
+  useEffect(() => {
     if (countdown === null) return;
     if (countdown <= 0) {
-      if (!startTriggered) {
+      if (isGM && !startTriggered) {
         if (mode === "SINGLE") {
           ws.send({ type: "start_game" });
         } else {
@@ -96,7 +122,7 @@ const WaitingRoom = () => {
     }
     const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
     return () => clearTimeout(t);
-  }, [countdown, ws, mode, secret, timeLimit, strokesPerPhase, guessWindowSec, startTriggered]);
+  }, [countdown, ws, mode, secret, timeLimit, strokesPerPhase, guessWindowSec, startTriggered, isGM]);
 
   const handleConfigSubmit = async () => {
     if (!secret.trim()) return;

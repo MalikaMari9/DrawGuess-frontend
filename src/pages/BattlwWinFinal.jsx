@@ -1,8 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useRoomWSContext } from "../ws/RoomWSContext";
 import "../styles/BattleWinFinal.css";
 
 const BattleWinFinal = () => {
-  const [winner, setWinner] = useState('red');
+  const { ws } = useRoomWSContext();
+  const snapshot = ws.snapshot || {};
+  const game = snapshot.game || {};
+  const score = game.score || { A: 0, B: 0 };
+  const computedWinner = score.A === score.B ? null : (score.A > score.B ? 'red' : 'blue');
+  const [winner, setWinner] = useState(computedWinner || 'red');
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
   const animationRef = useRef(null);
@@ -30,13 +36,10 @@ const BattleWinFinal = () => {
   };
 
   // Round history data
-  const roundHistory = [
-    { round: 'R1', winner: 'red' },
-    { round: 'R2', winner: 'blue' },
-    { round: 'R3', winner: 'red' },
-    { round: 'R4', winner: 'red' },
-    { round: 'R5', winner: 'blue' }
-  ];
+  const roundHistory = (game.history || []).map((h, idx) => ({
+    round: `R${idx + 1}`,
+    winner: h === 'A' ? 'red' : h === 'B' ? 'blue' : 'none'
+  }));
 
   // Confetti engine
   useEffect(() => {
@@ -118,6 +121,16 @@ const BattleWinFinal = () => {
       }
     };
   }, [winner]);
+
+  useEffect(() => {
+    const m = ws.lastMsg;
+    if (!m) return;
+    if (m.type === "room_snapshot") {
+      const sc = m.game?.score || { A: 0, B: 0 };
+      const w = sc.A === sc.B ? null : (sc.A > sc.B ? 'red' : 'blue');
+      setWinner(w || 'red');
+    }
+  }, [ws.lastMsg]);
 
   const handleSetWinner = (team) => {
     setWinner(team);
