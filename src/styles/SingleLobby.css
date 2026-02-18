@@ -205,6 +205,12 @@
   gap: 8px;
 }
 
+.player-disconnected summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.85);
+}
+
 .player-card {
   background: rgba(255, 255, 255, 0.05);
   padding: 8px 12px;

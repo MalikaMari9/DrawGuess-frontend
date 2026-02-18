@@ -1,3 +1,4 @@
+
 import { useCallback, useMemo, useRef, useState } from "react";
 
 function now() {
@@ -8,6 +9,12 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function normalizeRoomCode(code, trim = false) {
+  const raw = `${code ?? ""}`;
+  const cleaned = trim ? raw.trim() : raw;
+  return cleaned.toUpperCase();
+}
+
 export function useRoomWS(baseUrl) {
   const wsRef = useRef(null);
 
@@ -16,6 +23,7 @@ export function useRoomWS(baseUrl) {
   const [pid, setPid] = useState("");
   const [log, setLog] = useState([]);
   const [snapshot, setSnapshot] = useState(null);
+  const [lastCloseCode, setLastCloseCode] = useState(null);
   const [lastMsg, setLastMsg] = useState(null); // <- NEW (parsed last incoming)
 
   const pushLog = useCallback((dir, obj) => {
@@ -38,7 +46,8 @@ export function useRoomWS(baseUrl) {
 
   const connect = useCallback(
     (code) => {
-      if (!code) {
+      const cleanCode = normalizeRoomCode(code, true);
+      if (!cleanCode) {
         pushLog("ERR", "Room code is empty");
         return;
       }
@@ -49,10 +58,10 @@ export function useRoomWS(baseUrl) {
         wsRef.current = null;
       }
 
-      setRoomCode(code);
+      setRoomCode(cleanCode);
       setStatus("CONNECTING");
 
-      const url = `${baseUrl.replace(/\/+$/, "")}/ws/${code}`;
+      const url = `${baseUrl.replace(/\/+$/, "")}/ws/${cleanCode}`;
       pushLog("SYS", `Connecting: ${url}`);
 
       const myWs = new WebSocket(url);
@@ -73,6 +82,7 @@ export function useRoomWS(baseUrl) {
       myWs.onclose = (e) => {
         if (wsRef.current !== myWs) return;
         setStatus("DISCONNECTED");
+        setLastCloseCode(e.code);
         pushLog("SYS", `WebSocket closed (code=${e.code})`);
         wsRef.current = null;
         setPid("");
@@ -133,18 +143,19 @@ export function useRoomWS(baseUrl) {
     () => ({
       status,
       roomCode,
-      setRoomCode,
+      setRoomCode: (code) => setRoomCode(normalizeRoomCode(code)),
       pid,
       log,
       snapshot,
-      lastMsg,          // <- NEW
+      lastMsg,
+      lastCloseCode,
       connect,
       connectWaitOpen,  // <- NEW
       disconnect,
       send,
       clearLog: () => setLog([]),
     }),
-    [status, roomCode, pid, log, snapshot, lastMsg, connect, connectWaitOpen, disconnect, send]
+    [status, roomCode, pid, log, snapshot, lastMsg, lastCloseCode, connect, connectWaitOpen, disconnect, send]
   );
 
   return api;

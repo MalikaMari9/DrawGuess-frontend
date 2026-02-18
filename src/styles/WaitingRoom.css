@@ -77,6 +77,16 @@
   border-radius: 12px;
 }
 
+.team-disconnected {
+  margin-top: 10px;
+}
+
+.team-disconnected summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .team-title {
   font-family: "Bitcount Single", monospace;
   font-size: 0.85rem;

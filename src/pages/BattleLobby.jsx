@@ -11,7 +11,9 @@ const BattleLobby = () => {
   const room = snapshot.room || {};
   const players = snapshot.players || [];
   const roomCode = ws.roomCode || "----";
-  const playerCount = players.filter((p) => p.connected !== false).length;
+  const connectedPlayers = players.filter((p) => p.connected !== false);
+  const disconnectedPlayers = players.filter((p) => p.connected === false);
+  const playerCount = connectedPlayers.length;
   const maxPlayers = room.cap || 0;
   const canStart = playerCount >= 5;
   const [rolePickSent, setRolePickSent] = useState(false);
@@ -75,12 +77,12 @@ const BattleLobby = () => {
 
         <div className="section-title">PLAYERS</div>
         <div className="player-list">
-          {players.length === 0 ? (
+          {connectedPlayers.length === 0 ? (
             <div className="player-card" style={{ opacity: 0.6 }}>
               Waiting for players...
             </div>
           ) : (
-            players.map((player) => (
+            connectedPlayers.map((player) => (
               <div
                 key={player.pid}
                 className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
@@ -101,6 +103,34 @@ const BattleLobby = () => {
             ))
           )}
         </div>
+
+        {disconnectedPlayers.length > 0 && (
+          <details className="player-disconnected">
+            <summary>Disconnected ({disconnectedPlayers.length})</summary>
+            <div className="player-list" style={{ marginTop: 10 }}>
+              {disconnectedPlayers.map((player) => (
+                <div
+                  key={player.pid}
+                  className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
+                  style={{ opacity: 0.45, filter: "grayscale(0.6)" }}
+                >
+                  <div className="avatar-display" style={{ background: "#64748b" }}>
+                    {(player.name || "?")[0]?.toUpperCase()}
+                  </div>
+                  <div className="player-info">
+                    <span className="player-name">
+                      {player.name || "Unknown"}
+                      <span className="gm-tag" style={{ marginLeft: 8, opacity: 0.9 }}>
+                        OFFLINE
+                      </span>
+                    </span>
+                    <span className="player-role">Disconnected</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
         <div className="section-title">MODE</div>
         <div className="mode-badge">VS</div>

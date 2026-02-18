@@ -10,7 +10,9 @@ const SingleLobby = () => {
   const room = snapshot.room || {};
   const players = snapshot.players || [];
   const roomCode = ws.roomCode || "----";
-  const playerCount = players.filter((p) => p.connected !== false).length;
+  const connectedPlayers = players.filter((p) => p.connected !== false);
+  const disconnectedPlayers = players.filter((p) => p.connected === false);
+  const playerCount = connectedPlayers.length;
   const maxPlayers = room.cap || 0;
   const canStart = playerCount >= 3;
   const [rolePickSent, setRolePickSent] = useState(false);
@@ -74,10 +76,10 @@ const SingleLobby = () => {
           </div>
 
           <div className="player-list">
-            {players.length === 0 ? (
+            {connectedPlayers.length === 0 ? (
               <div className="player-card">Waiting for players...</div>
             ) : (
-              players.map((player) => (
+              connectedPlayers.map((player) => (
                 <div
                   key={player.pid}
                   className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
@@ -94,6 +96,31 @@ const SingleLobby = () => {
               ))
             )}
           </div>
+
+          {disconnectedPlayers.length > 0 && (
+            <details className="player-disconnected" style={{ marginTop: 10 }}>
+              <summary>Disconnected ({disconnectedPlayers.length})</summary>
+              <div className="player-list" style={{ marginTop: 10 }}>
+                {disconnectedPlayers.map((player) => (
+                  <div
+                    key={player.pid}
+                    className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
+                    style={{ opacity: 0.45, filter: "grayscale(0.6)" }}
+                  >
+                    <div className="avatar" style={{ background: "#64748b" }}>
+                      {(player.name || "?")[0]?.toUpperCase()}
+                    </div>
+                    <span className="player-name">
+                      {player.name || "Unknown"}
+                      <span className="gm-tag" style={{ marginLeft: 8, opacity: 0.9 }}>
+                        OFFLINE
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
 
         <div>

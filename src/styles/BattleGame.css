@@ -73,6 +73,38 @@
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
+.top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.score-display {
+  line-height: 1;
+}
+
+.you-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: 'Lato';
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.you-name {
+  color: #fff;
+  font-weight: 700;
+}
+
+.you-role {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
 .top-btn {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--panel-border);
@@ -224,18 +256,23 @@
   background: var(--canvas-bg);
   position: relative;
   border-bottom: 1px solid var(--panel-border);
-  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
   background-image: linear-gradient(var(--canvas-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px);
   background-size: 20px 20px;
   flex-shrink: 0;
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+  cursor: default;
 }
 
 canvas {
   width: 100%;
   height: 100%;
   display: block;
+  cursor: default;
+}
+
+.canvas-wrapper.can-draw,
+.canvas-wrapper.can-draw canvas {
   cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
 }
 

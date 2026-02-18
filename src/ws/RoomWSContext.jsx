@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRoomWS } from "./useRoomWS";
 
 const RoomWSContext = createContext(null);
@@ -12,6 +13,7 @@ export function RoomWSProvider({ children }) {
   const ws = useRoomWS(WS_BASE);
   const [nickname, setNickname] = useState(localStorage.getItem("dg_nickname") || "");
   const didAutoReconnect = useRef(false);
+  const reconnectingRef = useRef(false);
 
   // Auto-reconnect on refresh if we have a saved session
   useEffect(() => {
@@ -27,6 +29,24 @@ export function RoomWSProvider({ children }) {
       ws.send({ type: "snapshot" });
     })();
   }, [ws.connectWaitOpen, ws.send]);
+
+
+  useEffect(() => {
+    if (ws.status !== "DISCONNECTED") return;
+    if (ws.lastCloseCode === 1000 || ws.lastCloseCode === 1001) return;
+    const savedRoom = localStorage.getItem("dg_room");
+    const savedPid = localStorage.getItem("dg_pid");
+    if (!savedRoom || !savedPid) return;
+    if (reconnectingRef.current) return;
+    reconnectingRef.current = true;
+    (async () => {
+      const ok = await ws.connectWaitOpen(savedRoom);
+      reconnectingRef.current = false;
+      if (!ok) return;
+      ws.send({ type: "reconnect", pid: savedPid });
+      ws.send({ type: "snapshot" });
+    })();
+  }, [ws.status, ws.lastCloseCode, ws.connectWaitOpen, ws.send]);
 
   // Save pid/room when we get hello
   useEffect(() => {
@@ -46,6 +66,7 @@ export function RoomWSProvider({ children }) {
       m.type === "player_left" ||
       m.type === "roles_assigned" ||
       m.type === "room_state_changed" ||
+      m.type === "game_end" ||
       m.type === "player_updated" ||
       m.type === "teams_updated"
     ) {

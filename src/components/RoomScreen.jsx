@@ -51,9 +51,10 @@ export default function RoomScreen({
   const [singleTimeLimit, setSingleTimeLimit] = useState(240);
 
   const [vsSecret, setVsSecret] = useState("");
-  const [vsTimeLimit, setVsTimeLimit] = useState(240);
+  const [vsDrawWindow, setVsDrawWindow] = useState(60);
   const [vsStrokes, setVsStrokes] = useState(4);
   const [vsGuessWindow, setVsGuessWindow] = useState(10);
+  const [vsMaxRounds, setVsMaxRounds] = useState(5);
 
   const [modAction, setModAction] = useState("warn");
   const [modTarget, setModTarget] = useState("");
@@ -94,7 +95,7 @@ export default function RoomScreen({
   const canStartRolePick = connectedCount >= minPlayers;
   const canGuessPhase = mode === "SINGLE" ? phase === "DRAW" || phase === "GUESS" : phase === "GUESS";
 
-  const roundEndAt = Number(game?.round_end_at || 0);
+  const roundEndAt = Number(game?.draw_end_at || 0);
   const guessEndAt = Number(game?.guess_end_at || 0);
   const drawRemaining = roundEndAt ? roundEndAt - nowSec : null;
   const guessRemaining = guessEndAt ? guessEndAt - nowSec : null;
@@ -114,7 +115,7 @@ export default function RoomScreen({
 
   const handleGuess = () => {
     if (!guessText.trim()) return;
-    if (!canGuessPhase || state !== "IN_ROUND") return;
+    if (!canGuessPhase || state !== "IN_GAME") return;
     if (isMuted) return;
     ws.send({ type: "guess", text: guessText.trim() });
     setGuessText("");
@@ -126,10 +127,10 @@ export default function RoomScreen({
     ws.send({ type: "phase_tick" });
   };
 
-  const handleEndRound = () => {
+  const handleEndGame = () => {
     if (!isGM) return;
     if (isMuted) return;
-    ws.send({ type: "end_round" });
+    ws.send({ type: "end_game" });
   };
 
   const handleModeration = () => {
@@ -160,16 +161,18 @@ export default function RoomScreen({
     ws.send({ type: "start_game" });
   };
 
-  const handleStartVsRound = () => {
+  const handleStartVsGame = () => {
     if (!vsSecret.trim()) return;
     if (isMuted) return;
     ws.send({
-      type: "start_round",
+      type: "set_vs_config",
       secret_word: vsSecret.trim(),
-      time_limit_sec: Number(vsTimeLimit),
+      draw_window_sec: Number(vsDrawWindow),
       strokes_per_phase: Number(vsStrokes),
       guess_window_sec: Number(vsGuessWindow),
+      max_rounds: Number(vsMaxRounds),
     });
+    ws.send({ type: "start_game" });
   };
 
   const appendLocalOp = (target, op) => {
@@ -181,7 +184,7 @@ export default function RoomScreen({
   };
 
   const handleDrawOp = (op) => {
-    if (!isDrawer || state !== "IN_ROUND" || phase !== "DRAW") return;
+    if (!isDrawer || state !== "IN_GAME" || phase !== "DRAW") return;
     if (isMuted) return;
     if (mode === "VS") {
       if (!currentTeam) return;
@@ -200,7 +203,16 @@ export default function RoomScreen({
     }
   };
 
-  const showVote = phase === "VOTING" && state === "ROUND_END";
+  const showVote = phase === "VOTING" && state === "GAME_END";
+
+  let lastGuessLabel = "";
+  let lastGuessText = "";
+  if (lastGuessResult) {
+    const result = lastGuessResult.result || (lastGuessResult.correct ? "CORRECT" : "WRONG");
+    lastGuessLabel = result === "CORRECT" ? "Correct" : result === "NO_GUESS" ? "No guess" : "Wrong";
+    lastGuessText = lastGuessResult.text || (result === "NO_GUESS" ? "No guess submitted" : "");
+  }
+
 
   return (
     <div className="screen room">
@@ -337,7 +349,7 @@ export default function RoomScreen({
                 <div className="stat__value">{room?.round_no || 0}</div>
               </div>
               <div>
-                <div className="stat__label">Round Timer</div>
+                <div className="stat__label">Draw Timer</div>
                 <div className="stat__value">{formatCountdown(drawRemaining)}</div>
               </div>
               {phase === "GUESS" && (
@@ -369,7 +381,7 @@ export default function RoomScreen({
                 <CanvasBoard
                   label={`Team A Canvas`}
                   ops={opsByCanvas.A}
-                  canDraw={isDrawer && currentTeam === "A" && phase === "DRAW" && state === "IN_ROUND"}
+                  canDraw={isDrawer && currentTeam === "A" && phase === "DRAW" && state === "IN_GAME"}
                   tool={tool}
                   color={color}
                   strokeWidth={strokeWidth}
@@ -380,7 +392,7 @@ export default function RoomScreen({
                 <CanvasBoard
                   label={`Team B Canvas`}
                   ops={opsByCanvas.B}
-                  canDraw={isDrawer && currentTeam === "B" && phase === "DRAW" && state === "IN_ROUND"}
+                  canDraw={isDrawer && currentTeam === "B" && phase === "DRAW" && state === "IN_GAME"}
                   tool={tool}
                   color={color}
                   strokeWidth={strokeWidth}
@@ -393,7 +405,7 @@ export default function RoomScreen({
               <CanvasBoard
                 label="Shared Canvas"
                 ops={opsByCanvas.S}
-                canDraw={isDrawer && phase === "DRAW" && state === "IN_ROUND"}
+                canDraw={isDrawer && phase === "DRAW" && state === "IN_GAME"}
                 tool={tool}
                 color={color}
                 strokeWidth={strokeWidth}
@@ -404,7 +416,7 @@ export default function RoomScreen({
             )}
           </div>
 
-          {isDrawer && phase === "DRAW" && state === "IN_ROUND" && (
+          {isDrawer && phase === "DRAW" && state === "IN_GAME" && (
             <div className="panel panel--glow panel--toolbar">
               <div className="toolbar">
                 <div className="field">
@@ -456,7 +468,7 @@ export default function RoomScreen({
             </div>
             {lastGuessResult && (
               <div className="notice">
-                Last guess: {lastGuessResult.text} — {lastGuessResult.correct ? "Correct" : "Wrong"}
+                Last guess: {lastGuessText || "-"} - {lastGuessLabel || "Wrong"}
               </div>
             )}
           </div>
@@ -481,13 +493,13 @@ export default function RoomScreen({
                 Waiting for GM to configure the round.
               </p>
             )}
-            {state === "IN_ROUND" && isGM && (
+            {state === "IN_GAME" && isGM && (
               <div className="inline">
                 <button className="btn btn--ghost" onClick={handlePhaseTick} disabled={isMuted}>
                   Advance Phase
                 </button>
-                <button className="btn btn--danger" onClick={handleEndRound} disabled={isMuted}>
-                  End Round
+                <button className="btn btn--danger" onClick={handleEndGame} disabled={isMuted}>
+                  End Game
                 </button>
               </div>
             )}
@@ -511,7 +523,7 @@ export default function RoomScreen({
                 />
               </div>
               <div className="field">
-                <label>Time Limit (sec)</label>
+                <label>Draw Window (sec)</label>
                 <input
                   type="number"
                   min="180"
@@ -543,13 +555,13 @@ export default function RoomScreen({
                 <input value={vsSecret} onChange={(e) => setVsSecret(e.target.value)} />
               </div>
               <div className="field">
-                <label>Time Limit (sec)</label>
+                <label>Draw Window (sec)</label>
                 <input
                   type="number"
                   min="60"
                   max="900"
-                  value={vsTimeLimit}
-                  onChange={(e) => setVsTimeLimit(Number(e.target.value))}
+                  value={vsDrawWindow}
+                  onChange={(e) => setVsDrawWindow(Number(e.target.value))}
                 />
               </div>
               <div className="field">
@@ -572,17 +584,27 @@ export default function RoomScreen({
                   onChange={(e) => setVsGuessWindow(Number(e.target.value))}
                 />
               </div>
+              <div className="field">
+                <label>Max Rounds</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={vsMaxRounds}
+                  onChange={(e) => setVsMaxRounds(Number(e.target.value))}
+                />
+              </div>
               <button
                 className="btn btn--primary"
-                onClick={handleStartVsRound}
+                onClick={handleStartVsGame}
                 disabled={!vsSecret.trim() || isMuted}
               >
-                Start Round
+                Start Game
               </button>
             </div>
           )}
 
-          {canGuessPhase && isGuesser && state === "IN_ROUND" && (
+          {canGuessPhase && isGuesser && state === "IN_GAME" && (
             <div className="panel panel--mini">
               <h3>Submit Guess</h3>
               <div className="field">
@@ -601,7 +623,7 @@ export default function RoomScreen({
 
           {showVote && (
             <div className="panel panel--mini">
-              <h3>Vote Next Round</h3>
+              <h3>Vote Next Game</h3>
               <div className="inline">
                 <button
                   className="btn btn--ghost"
@@ -632,10 +654,11 @@ export default function RoomScreen({
             <div className="panel panel--mini">
               <h3>Round Info</h3>
               <p>Secret Word: {roundConfig.secret_word || "Hidden"}</p>
-              {roundConfig.time_limit_sec && <p>Time Limit: {roundConfig.time_limit_sec}s</p>}
+              {roundConfig.draw_window_sec && <p>Draw Window: {roundConfig.draw_window_sec}s</p>}
               {roundConfig.strokes_per_phase && <p>Strokes/Phase: {roundConfig.strokes_per_phase}</p>}
               {roundConfig.stroke_limit && <p>Stroke Limit: {roundConfig.stroke_limit}</p>}
               {roundConfig.guess_window_sec && <p>Guess Window: {roundConfig.guess_window_sec}s</p>}
+              {roundConfig.max_rounds && <p>Max Rounds: {roundConfig.max_rounds}</p>}
             </div>
           )}
 

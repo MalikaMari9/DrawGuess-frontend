@@ -273,6 +273,16 @@
   gap: 10px;
 }
 
+.player-disconnected {
+  margin-top: 12px;
+}
+
+.player-disconnected summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 800;
+}
+
 .player-card {
   display: flex;
   align-items: center;

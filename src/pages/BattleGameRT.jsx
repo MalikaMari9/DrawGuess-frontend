@@ -19,16 +19,31 @@ const BattleGame = () => {
     setGameState(snapshot.game || {});
   }, [snapshot.game]);
 
-  const myPid = ws.pid || sessionStorage.getItem("dg_pid");
+  const myPid = ws.pid || localStorage.getItem("dg_pid");
   const me = players.find((p) => p.pid === myPid) || {};
+  const myName = me.name || "Player";
   const myTeam = me.team || null;
   const myRole = me.role || "";
   const isDrawer = myRole.includes("drawer");
   const isGuesser = myRole.includes("guesser");
   const isGM = myRole === "gm" || (room.gm_pid && myPid && room.gm_pid === myPid);
+  const isDrawerA = isDrawer && myTeam === "A";
+  const isDrawerB = isDrawer && myTeam === "B";
+  const isGuesserA = isGuesser && myTeam === "A";
+  const isGuesserB = isGuesser && myTeam === "B";
+  const roleLabel = isGM
+    ? "GM"
+    : isDrawer
+    ? "Drawer"
+    : isGuesser
+    ? "Guesser"
+    : "Player";
+  const teamLabel = myTeam === "A" ? "Red Team" : myTeam === "B" ? "Blue Team" : "No Team";
 
   const phaseFromGame = gameState.phase || "";
   const score = gameState.score || { A: 0, B: 0 };
+  const teamGuessed = gameState.team_guessed || {};
+  const teamAlreadyGuessed = myTeam ? !!teamGuessed[myTeam] : false;
 
   const teamA = players.filter((p) => p.team === "A");
   const teamB = players.filter((p) => p.team === "B");
@@ -44,10 +59,10 @@ const BattleGame = () => {
     score: score.B || 0,
   };
 
-  const currentPlayer = me.name || "Player";
+  const currentPlayer = myName;
 
   useEffect(() => {
-    if (room.state === "ROUND_END") {
+    if (room.state === "GAME_END") {
       navigate("/battle-round-win");
       return;
     }
@@ -69,8 +84,8 @@ const BattleGame = () => {
   const [sabotageArmed, setSabotageArmed] = useState(false);
   const [sabotageCooldown, setSabotageCooldown] = useState({ A: 0, B: 0 });
 
-  const canDrawA = isDrawer && myTeam === "A" && room.state === "IN_ROUND" && phase === "DRAW";
-  const canDrawB = isDrawer && myTeam === "B" && room.state === "IN_ROUND" && phase === "DRAW";
+  const canDrawA = isDrawerA && room.state === "IN_GAME" && phase === "DRAW";
+  const canDrawB = isDrawerB && room.state === "IN_GAME" && phase === "DRAW";
 
   // ✅ timers from reactive gameState
   const drawEndAt = Number(gameState?.draw_end_at || 0);
@@ -82,6 +97,7 @@ const BattleGame = () => {
       : phase === "GUESS"
       ? (guessEndAt ? Math.max(0, guessEndAt - nowSec) : 0)
       : 0;
+  const phaseTimeLabel = phase === "GUESS" ? "GUESS TIME" : phase === "DRAW" ? "DRAW TIME" : "TIME";
 
   const team1SabotageUsed = (sabotageCooldown.A || 0) > nowSec;
   const team2SabotageUsed = (sabotageCooldown.B || 0) > nowSec;
@@ -103,14 +119,14 @@ const BattleGame = () => {
 
   // ✅ Request snapshot to seed timers when entering a phase with missing end_at
   useEffect(() => {
-    if (room.state !== "IN_ROUND") return;
+    if (room.state !== "IN_GAME") return;
     if (phase === "DRAW" && !drawEndAt) ws.send({ type: "snapshot" });
     if (phase === "GUESS" && !guessEndAt) ws.send({ type: "snapshot" });
   }, [room.state, phase, drawEndAt, guessEndAt, ws]);
 
   // ✅ Auto-send phase_tick ONLY when an active phase timer has actually reached 0
   useEffect(() => {
-    if (room.state !== "IN_ROUND") return;
+    if (room.state !== "IN_GAME") return;
 
     const hasTimer = phase === "DRAW" ? !!drawEndAt : phase === "GUESS" ? !!guessEndAt : false;
     if (!hasTimer) return;
@@ -189,7 +205,7 @@ const BattleGame = () => {
 
   useEffect(() => {
     if (ws.status === "CONNECTED" || ws.status === "CONNECTING") return;
-    const savedRoom = sessionStorage.getItem("dg_room");
+    const savedRoom = localStorage.getItem("dg_room");
     if (!savedRoom) return;
     (async () => {
       const ok = await ws.connectWaitOpen(savedRoom);
@@ -378,6 +394,16 @@ const BattleGame = () => {
       }
     }
 
+        if (m.type === "guess_result") {
+      const team = m.team;
+      const result = m.result || (m.correct ? "CORRECT" : "WRONG");
+      if (result === "NO_GUESS" && (team === "A" || team === "B")) {
+        const msg = { text: "No guess submitted", isOwn: false, name: team === "A" ? "Team A" : "Team B" };
+        if (team === "A") setTeam1Messages((prev) => [...prev, msg]);
+        if (team === "B") setTeam2Messages((prev) => [...prev, msg]);
+      }
+    }
+
     if (m.type === "guess_chat" || m.type === "guess_result") {
       const pid = m.pid || m.by;
       const p = players.find((pl) => pl.pid === pid);
@@ -424,7 +450,7 @@ const BattleGame = () => {
       const parent = canvas.parentElement;
       const rect = parent.getBoundingClientRect();
 
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
       const imageData = canvas.width && canvas.height ? ctx.getImageData(0, 0, canvas.width, canvas.height) : null;
 
       canvas.width = rect.width;
@@ -442,11 +468,11 @@ const BattleGame = () => {
     };
 
     if (canvas1Ref.current) {
-      ctx1Ref.current = canvas1Ref.current.getContext('2d');
+      ctx1Ref.current = canvas1Ref.current.getContext('2d', { willReadFrequently: true });
       resizeCanvas(1);
     }
     if (canvas2Ref.current) {
-      ctx2Ref.current = canvas2Ref.current.getContext('2d');
+      ctx2Ref.current = canvas2Ref.current.getContext('2d', { willReadFrequently: true });
       resizeCanvas(2);
     }
 
@@ -777,7 +803,7 @@ const BattleGame = () => {
 
     if (ws.status !== "CONNECTED") return console.warn("guess blocked: ws not connected");
     if (!isGuesser) return console.warn("guess blocked: not a guesser");
-    if (room.state !== "IN_ROUND") return console.warn("guess blocked: not in round");
+    if (room.state !== "IN_GAME") return console.warn("guess blocked: not in round");
     if (phase !== "GUESS") return console.warn("guess blocked: not in GUESS phase");
 
     if (team === 1) {
@@ -850,11 +876,20 @@ const BattleGame = () => {
 
         <div className="round-info">ROUND {round}</div>
 
-        <div style={{ fontFamily: "'Bitcount Single'", fontWeight: 900, fontSize: '1rem' }}>
-          SCORE:{' '}
-          <span style={{ color: 'var(--c-red)', textShadow: '0 0 10px var(--c-red-glow)' }}>{redScore}</span>
-          <span style={{ color: 'var(--text-muted)' }}> - </span>
-          <span style={{ color: 'var(--c-blue)', textShadow: '0 0 10px var(--c-blue-glow)' }}>{blueScore}</span>
+        <div className="top-right">
+          <div className="score-display" style={{ fontFamily: "'Bitcount Single'", fontWeight: 900, fontSize: '1rem' }}>
+            SCORE:{' '}
+            <span style={{ color: 'var(--c-red)', textShadow: '0 0 10px var(--c-red-glow)' }}>{redScore}</span>
+            <span style={{ color: 'var(--text-muted)' }}> - </span>
+            <span style={{ color: 'var(--c-blue)', textShadow: '0 0 10px var(--c-blue-glow)' }}>{blueScore}</span>
+          </div>
+          <div className="you-info">
+            <div className="you-name">You: {myName}</div>
+            <div className="you-role">
+              {roleLabel}
+              {!isGM && myTeam ? ` · ${teamLabel}` : ""}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -867,7 +902,7 @@ const BattleGame = () => {
             <div className="player-names">{redTeam.players.join(' • ')}</div>
             <div className="stats-row">
               <div className="stat-item">
-                TIME{' '}
+                {phaseTimeLabel}{' '}
                 <span className="stat-val">{phaseRemaining}</span>
               </div>
               <div className="stat-item">
@@ -879,11 +914,12 @@ const BattleGame = () => {
             </div>
           </div>
 
-          <div className="canvas-wrapper">
+          <div className={`canvas-wrapper ${canDrawA ? "can-draw" : ""}`}>
             <canvas ref={canvas1Ref} id="c1"></canvas>
           </div>
 
           <div className="bottom-split">
+            {isDrawerA && (
             <div className="tools-sidebar">
               <div id="sab1" className={`sabotage-btn ${team1SabotageUsed ? 'used' : ''}`} onClick={handleSabotageTeam1}>
                 🔥
@@ -931,6 +967,7 @@ const BattleGame = () => {
                 <button className="action-btn" onClick={clearCanvas1} title="Clear">🗑️</button>
               </div>
             </div>
+            )}
 
             <div className="chat-main">
               <div className="chat-log-container" id="log1">
@@ -938,25 +975,27 @@ const BattleGame = () => {
                   <div key={index} className={`msg ${msg.isOwn ? 'right' : ''}`}>{msg.text}</div>
                 ))}
               </div>
-              <div className="input-area">
-                <input
-                  type="text"
-                  className="guess-box"
-                  placeholder="Guess..."
-                  id="inp1"
-                  value={team1Input}
-                  onChange={(e) => setTeam1Input(e.target.value)}
-                  onKeyDown={(e) => handleGuessKeyDown(e, 1)}
-                  disabled={ws.status !== "CONNECTED" || myTeam !== "A" || !isGuesser || room.state !== "IN_ROUND" || phase !== "GUESS"}
-                />
-                <button
-                  className="send-btn send-red"
-                  onClick={() => sendGuess(1)}
-                  disabled={ws.status !== "CONNECTED" || myTeam !== "A" || !isGuesser || room.state !== "IN_ROUND" || phase !== "GUESS"}
-                >
-                  SEND
-                </button>
-              </div>
+              {isGuesserA && (
+                <div className="input-area">
+                  <input
+                    type="text"
+                    className="guess-box"
+                    placeholder="Guess..."
+                    id="inp1"
+                    value={team1Input}
+                    onChange={(e) => setTeam1Input(e.target.value)}
+                    onKeyDown={(e) => handleGuessKeyDown(e, 1)}
+                    disabled={ws.status !== "CONNECTED" || myTeam !== "A" || !isGuesser || room.state !== "IN_GAME" || phase !== "GUESS" || teamAlreadyGuessed}
+                  />
+                  <button
+                    className="send-btn send-red"
+                    onClick={() => sendGuess(1)}
+                    disabled={ws.status !== "CONNECTED" || myTeam !== "A" || !isGuesser || room.state !== "IN_GAME" || phase !== "GUESS" || teamAlreadyGuessed}
+                  >
+                    SEND
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -969,7 +1008,7 @@ const BattleGame = () => {
             <div className="player-names">{blueTeam.players.join(' • ')}</div>
             <div className="stats-row">
               <div className="stat-item">
-                TIME{' '}
+                {phaseTimeLabel}{' '}
                 <span className="stat-val">{phaseRemaining}</span>
               </div>
               <div className="stat-item">
@@ -981,11 +1020,12 @@ const BattleGame = () => {
             </div>
           </div>
 
-          <div className="canvas-wrapper">
+          <div className={`canvas-wrapper ${canDrawB ? "can-draw" : ""}`}>
             <canvas ref={canvas2Ref} id="c2"></canvas>
           </div>
 
           <div className="bottom-split">
+            {isDrawerB && (
             <div className="tools-sidebar">
               <div id="sab2" className={`sabotage-btn ${team2SabotageUsed ? 'used' : ''}`} onClick={handleSabotageTeam2}>
                 🔥
@@ -1033,6 +1073,7 @@ const BattleGame = () => {
                 <button className="action-btn" onClick={clearCanvas2} title="Clear">🗑️</button>
               </div>
             </div>
+            )}
 
             <div className="chat-main">
               <div className="chat-log-container" id="log2">
@@ -1040,25 +1081,27 @@ const BattleGame = () => {
                   <div key={index} className={`msg ${msg.isOwn ? 'right' : ''}`}>{msg.text}</div>
                 ))}
               </div>
-              <div className="input-area">
-                <input
-                  type="text"
-                  className="guess-box"
-                  placeholder="Guess..."
-                  id="inp2"
-                  value={team2Input}
-                  onChange={(e) => setTeam2Input(e.target.value)}
-                  onKeyDown={(e) => handleGuessKeyDown(e, 2)}
-                  disabled={ws.status !== "CONNECTED" || myTeam !== "B" || !isGuesser || room.state !== "IN_ROUND" || phase !== "GUESS"}
-                />
-                <button
-                  className="send-btn send-blue"
-                  onClick={() => sendGuess(2)}
-                  disabled={ws.status !== "CONNECTED" || myTeam !== "B" || !isGuesser || room.state !== "IN_ROUND" || phase !== "GUESS"}
-                >
-                  SEND
-                </button>
-              </div>
+              {isGuesserB && (
+                <div className="input-area">
+                  <input
+                    type="text"
+                    className="guess-box"
+                    placeholder="Guess..."
+                    id="inp2"
+                    value={team2Input}
+                    onChange={(e) => setTeam2Input(e.target.value)}
+                    onKeyDown={(e) => handleGuessKeyDown(e, 2)}
+                    disabled={ws.status !== "CONNECTED" || myTeam !== "B" || !isGuesser || room.state !== "IN_GAME" || phase !== "GUESS" || teamAlreadyGuessed}
+                  />
+                  <button
+                    className="send-btn send-blue"
+                    onClick={() => sendGuess(2)}
+                    disabled={ws.status !== "CONNECTED" || myTeam !== "B" || !isGuesser || room.state !== "IN_GAME" || phase !== "GUESS" || teamAlreadyGuessed}
+                  >
+                    SEND
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
