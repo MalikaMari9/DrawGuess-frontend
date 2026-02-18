@@ -1,28 +1,62 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useMemo, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import '../styles/SingleWin.css';
 
 const SingleWin = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
-  
-  // Mock winner data - replace with actual props/state management later
-  const [winner] = useState({
-    name: 'Alex',
-    avatar: 'A',
-    points: '3,450',
-    rank: 1
-  });
 
-  // Mock players leaderboard data
-  const [players] = useState([
-    { id: 1, name: 'Alex', avatar: 'A', score: 3450, rank: 1, color: 'var(--gold)' },
-    { id: 2, name: 'Mike', avatar: 'M', score: 2100, rank: 2, color: 'var(--silver)' },
-    { id: 3, name: 'Sarah', avatar: 'S', score: 1850, rank: 3, color: 'var(--bronze)' },
-    { id: 4, name: 'Jess', avatar: 'J', score: 1200, rank: 4 },
-    { id: 5, name: 'Tom', avatar: 'K', score: 950, rank: 5 }
-  ]);
+  const resultState = location.state || {};
+  const players = useMemo(() => {
+    const rawAll = Array.isArray(resultState.players) ? resultState.players : [];
+    const rawConnected = rawAll.filter((p) => p && p.connected !== false);
+    const raw = rawConnected.length ? rawConnected : rawAll;
+    if (!raw.length) {
+      return [{ id: 'unknown', name: resultState.winnerName || 'Winner', avatar: (resultState.winnerName || 'W')[0], score: 0, rank: 1 }];
+    }
+
+    const seen = new Set();
+    const unique = [];
+    for (const p of raw) {
+      const key = p?.pid || p?.id || p?.name || "";
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      unique.push(p);
+    }
+
+    return unique.map((p, idx) => {
+      const scoreRaw = p?.score ?? p?.points ?? 0;
+      const score = Number.isFinite(Number(scoreRaw)) ? Number(scoreRaw) : 0;
+      const name = p?.name || `Player ${idx + 1}`;
+      return {
+        id: p?.pid || p?.id || `p-${idx}`,
+        pid: p?.pid || '',
+        name,
+        avatar: String(name).charAt(0).toUpperCase(),
+        score,
+      };
+    });
+  }, [resultState.players, resultState.winnerName]);
+
+  const sortedPlayers = useMemo(
+    () => [...players].sort((a, b) => b.score - a.score).map((p, idx) => ({ ...p, rank: idx + 1 })),
+    [players]
+  );
+
+  const winner = useMemo(() => {
+    const winnerPid = resultState.winnerPid || '';
+    const byPid = winnerPid ? sortedPlayers.find((p) => p.pid === winnerPid) : null;
+    const byName = resultState.winnerName
+      ? sortedPlayers.find((p) => p.name === resultState.winnerName)
+      : null;
+    const selected = byPid || byName || sortedPlayers[0] || { name: resultState.winnerName || 'Winner', avatar: 'W', score: 0, rank: 1 };
+    return {
+      ...selected,
+      points: Number(selected.score || 0).toLocaleString(),
+    };
+  }, [resultState.winnerName, resultState.winnerPid, sortedPlayers]);
 
   // ========== CONFETTI ENGINE ==========
   useEffect(() => {
@@ -129,9 +163,6 @@ const SingleWin = () => {
     if (rank === 3) return 'rank-3';
     return '';
   };
-
-  // Sort players by score (highest first)
-  const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
 
   return (
     <div className="win-wrapper">

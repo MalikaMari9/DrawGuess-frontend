@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useRoomWSContext } from '../ws/RoomWSContext';
 import '../styles/SingleGame.css';
 
 const LOGICAL_CANVAS_W = 1024;
@@ -20,8 +21,96 @@ const fitCanvasToWrapper = (canvas) => {
   canvas.style.height = `${displayH}px`;
 };
 
+function getStored(key) {
+  return sessionStorage.getItem(key) || localStorage.getItem(key) || "";
+}
+
+function getStoredPid() {
+  // PID should be tab-scoped to avoid cross-tab identity collisions.
+  return sessionStorage.getItem("dg_pid") || "";
+}
+
+function opListFromSnapshot(msg) {
+  return Array.isArray(msg?.ops) ? msg.ops : [];
+}
+
+function canonicalToPixelPoint(x, y, canvas) {
+  const sx = (canvas?.width || 1) / LOGICAL_CANVAS_W;
+  const sy = (canvas?.height || 1) / LOGICAL_CANVAS_H;
+  return { x: x * sx, y: y * sy };
+}
+
+function opToStroke(op, canvas) {
+  const t = op?.t || op?.type || "line";
+  const p = op?.p || op || {};
+  const sx = (canvas?.width || 1) / LOGICAL_CANVAS_W;
+  const size = Math.max(1, Number(p.w || 3)) * sx;
+
+  if (p.clear) {
+    return { type: "clear" };
+  }
+  if (p.erase) {
+    const pts = Array.isArray(p.pts) ? p.pts : [];
+    if (pts.length < 2) return null;
+    return {
+      type: "erase",
+      size,
+      points: pts.map((pt) => canonicalToPixelPoint(pt[0], pt[1], canvas)),
+    };
+  }
+
+  if (t === "circle") {
+    const cx = Number(p.cx || 0);
+    const cy = Number(p.cy || 0);
+    const r = Number(p.r || 0);
+    return {
+      type: "circle",
+      color: p.c || "#2f3542",
+      size,
+      center: canonicalToPixelPoint(cx, cy, canvas),
+      radius: r * sx,
+    };
+  }
+
+  // default: line
+  const pts = Array.isArray(p.pts) ? p.pts : [];
+  if (pts.length < 2) return null;
+  return {
+    type: "free",
+    color: p.c || "#2f3542",
+    size,
+    points: pts.map((pt) => canonicalToPixelPoint(pt[0], pt[1], canvas)),
+  };
+}
+
+function strokeToOp(stroke, canvas) {
+  const sx = (canvas?.width || 1) / LOGICAL_CANVAS_W;
+  const sy = (canvas?.height || 1) / LOGICAL_CANVAS_H;
+  const w = Math.max(1, Number(stroke?.size || 3)) / sx;
+
+  if (stroke?.type === "circle") {
+    const cx = (stroke.center?.x || 0) / sx;
+    const cy = (stroke.center?.y || 0) / sy;
+    const r = (stroke.radius || 0) / sx;
+    return { t: "circle", p: { cx, cy, r, c: stroke.color, w }, start_ts: Date.now() };
+  }
+
+  // line / free
+  const pts = (stroke?.type === "line" && stroke.start && stroke.end)
+    ? [[stroke.start.x / sx, stroke.start.y / sy], [stroke.end.x / sx, stroke.end.y / sy]]
+    : Array.isArray(stroke?.points)
+      ? stroke.points.map((pt) => [pt.x / sx, pt.y / sy])
+      : [];
+
+  if (pts.length < 2) return null;
+  return { t: "line", p: { pts, c: stroke.color, w }, start_ts: Date.now() };
+}
+
+
+
 const SingleGame = () => {
   const navigate = useNavigate();
+  const { ws } = useRoomWSContext();
   const canvasRef = useRef(null);
   const audioEngineRef = useRef(null);
   const gameIntervalRef = useRef(null);
@@ -30,9 +119,342 @@ const SingleGame = () => {
   const strokesRef = useRef([]);
   const currentStrokeRef = useRef(null);
   const eraserPathRef = useRef([]);
-  
-  // Game constants
-  const MAX_TIME = 60;
+  const playersByPidRef = useRef({});
+  const roundEndHandledKeyRef = useRef("");
+  const routedToWinRef = useRef(false);
+  const rolePickHandledRef = useRef(false);
+
+  // ===== Shared canvas ops (from backend) =====
+  const opsRef = useRef([]);         // canonical ops (1024x768) from server
+  const [opsVersion, setOpsVersion] = useState(0); // bump to trigger re-render/rebuild
+  const bumpOps = useCallback(() => setOpsVersion((v) => v + 1), []);
+
+  // ===== WebSocket snapshot state (for countdown + secret display) =====
+  const [snapshot, setSnapshot] = useState(ws.snapshot || null);
+
+  const roomCode = ws.roomCode || getStored("dg_room");
+  const myPid = ws.pid || getStoredPid() || "";
+  const backendRole = useMemo(() => {
+    const players = Array.isArray(snapshot?.players) ? snapshot.players : [];
+    const me = players.find((p) => p?.pid === myPid);
+    return String(me?.role || "").toLowerCase();
+  }, [snapshot, myPid]);
+
+  const roundConfig = snapshot?.round_config || {};
+  const gameSnap = snapshot?.game || {};
+  const strokeLimit = Number(gameSnap?.stroke_limit || roundConfig?.stroke_limit || 0);
+  const strokesLeft = Number(gameSnap?.strokes_left || 0);
+  const strokesUsed = strokeLimit ? Math.max(0, strokeLimit - strokesLeft) : 0;
+  const roomRoundNo = Number(snapshot?.room?.round_no || 0);
+  const isInRound = snapshot?.room?.state === "IN_GAME";
+  const isVotingPhase = snapshot?.room?.state === "GAME_END" && String(gameSnap?.phase || "") === "VOTING";
+  const phase = String(gameSnap?.phase || "");
+  const gmPid = String(snapshot?.room?.gm_pid || snapshot?.roles?.gm || "");
+  const drawerPid = String(gameSnap?.drawer_pid || snapshot?.roles?.drawer || "");
+  const isGmByPid = Boolean(myPid) && gmPid === myPid;
+  const isDrawerByPid = Boolean(myPid) && drawerPid === myPid;
+  // Strict permission source: backend per-player role first.
+  // Fallback to pid mapping only for drawer (game.drawer_pid is authoritative in SINGLE).
+  const canDraw = isInRound && phase === "DRAW" && (backendRole === "drawer" || isDrawerByPid);
+  const canGuess = isInRound && backendRole === "guesser";
+  const roundEndWinnerPid = String(gameSnap?.winner_pid || "");
+  const roundEndWinnerName = useMemo(() => {
+    if (!roundEndWinnerPid) return "";
+    const players = Array.isArray(snapshot?.players) ? snapshot.players : [];
+    const matched = players.find((p) => p?.pid === roundEndWinnerPid);
+    return matched?.name || playersByPidRef.current[roundEndWinnerPid] || `Player ${roundEndWinnerPid.slice(0, 4)}`;
+  }, [roundEndWinnerPid, snapshot]);
+  const livePlayers = useMemo(() => {
+    const list = Array.isArray(snapshot?.players) ? snapshot.players : [];
+    const gmPid = snapshot?.room?.gm_pid || "";
+    return list
+      .filter((p) => p && p.connected !== false)
+      .map((p) => ({
+        id: p.pid,
+        name: p.name || "Unknown",
+        avatar: String(p.name || "?")[0]?.toUpperCase() || "?",
+        score: Number(p.score || 0),
+        isHost: p.pid === gmPid,
+        color: p.pid === myPid ? 'var(--accent)' : undefined,
+      }))
+      .sort((a, b) => b.score - a.score);
+  }, [snapshot, myPid]);
+  const myScore = useMemo(() => {
+    const me = livePlayers.find((p) => p.id === myPid);
+    return me ? me.score : 0;
+  }, [livePlayers, myPid]);
+  const secretWord = String(roundConfig?.secret_word || "");
+  const canSeeSecret = isGmByPid || isDrawerByPid;
+
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), 250);
+    return () => clearInterval(t);
+  }, []);
+
+  const timeLimitSec = Number(roundConfig?.time_limit_sec || 0);
+  const gameStartedAt = Number(gameSnap?.game_started_at || 0);
+  const gameEndAt =
+    Number(gameSnap?.game_end_at || 0) ||
+    (gameStartedAt && timeLimitSec ? gameStartedAt + timeLimitSec : 0);
+
+  const serverTimeLeft =
+    gameEndAt ? Math.max(0, Math.floor(gameEndAt - nowSec)) : 0;
+  const hasServerTimer = Boolean(gameStartedAt && timeLimitSec);
+  const goToSingleWin = useCallback((payload) => {
+    if (routedToWinRef.current) return;
+    routedToWinRef.current = true;
+    navigate('/single-win', { state: payload });
+  }, [navigate]);
+  const handoffToRolePick = useCallback(() => {
+    navigate('/role-pick');
+  }, [navigate]);
+
+  useEffect(() => {
+    if (ws.snapshot) {
+      setSnapshot(ws.snapshot);
+    }
+  }, [ws.snapshot]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+
+    const players = Array.isArray(snapshot?.players) ? snapshot.players : [];
+    playersByPidRef.current = Object.fromEntries(
+      players.map((p) => [p.pid, p.name || "Player"])
+    );
+
+    const ops = opListFromSnapshot(snapshot);
+    opsRef.current = ops;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const rebuilt = [];
+      const distPointToSegmentLocal = (p, a, b) => {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+        const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+        const clamped = Math.max(0, Math.min(1, t));
+        const cx = a.x + clamped * dx;
+        const cy = a.y + clamped * dy;
+        return Math.hypot(p.x - cx, p.y - cy);
+      };
+      const hitStrokeLocal = (stroke, point, radius) => {
+        const r = radius + (stroke.size || 1) / 2;
+        if (stroke.type === 'line') {
+          return distPointToSegmentLocal(point, stroke.start, stroke.end) <= r;
+        }
+        if (stroke.type === 'circle') {
+          const d = Math.hypot(point.x - stroke.center.x, point.y - stroke.center.y);
+          return Math.abs(d - stroke.radius) <= r;
+        }
+        if (stroke.type === 'free') {
+          const pts = stroke.points || [];
+          for (let i = 1; i < pts.length; i += 1) {
+            if (distPointToSegmentLocal(point, pts[i - 1], pts[i]) <= r) return true;
+          }
+          return false;
+        }
+        return false;
+      };
+      const applyEraseLocal = (point, radius) => {
+        for (let i = rebuilt.length - 1; i >= 0; i -= 1) {
+          if (hitStrokeLocal(rebuilt[i], point, radius)) {
+            rebuilt.splice(i, 1);
+          }
+        }
+      };
+
+      ops.forEach((opWrap) => {
+        const st = opToStroke(opWrap?.p ? opWrap : opWrap, canvas);
+        if (!st) return;
+        if (st.type === 'clear') {
+          rebuilt.length = 0;
+          return;
+        }
+        if (st.type === 'erase') {
+          const radius = Math.max(6, (st.size || 6) * 1.5);
+          st.points.forEach((pt) => applyEraseLocal(pt, radius));
+          return;
+        }
+        rebuilt.push(st);
+      });
+
+      strokesRef.current = rebuilt;
+      renderStrokes();
+    }
+    bumpOps();
+
+    if (snapshot?.room?.state === "GAME_END") {
+      const winnerPid = String(snapshot?.game?.winner_pid || "");
+      const reason = String(snapshot?.game?.end_reason || "");
+      const phase = String(snapshot?.game?.phase || "");
+      const roundNo = Number(snapshot?.room?.round_no || 0);
+      const dedupeKey = `${roundNo}:${reason}:${phase}:${winnerPid}`;
+      if (roundEndHandledKeyRef.current !== dedupeKey) {
+        roundEndHandledKeyRef.current = dedupeKey;
+        const winnerName = winnerPid
+          ? (playersByPidRef.current[winnerPid] || `Player ${winnerPid.slice(0, 4)}`)
+          : "";
+
+        setGameState((prev) => ({ ...prev, isGameOver: true, isPaused: true }));
+        if (reason === "VOTE_NO") {
+          const connectedPlayers = players.filter((p) => p && p.connected !== false);
+          const sortedByScore = [...connectedPlayers].sort(
+            (a, b) => Number(b?.score || 0) - Number(a?.score || 0)
+          );
+          const top = sortedByScore[0] || null;
+          goToSingleWin({
+            roomCode: snapshot?.room_code || roomCode,
+            roundNo,
+            endReason: reason,
+            winnerPid: top?.pid || "",
+            winnerName: top?.name || "Winner",
+            players: connectedPlayers,
+          });
+        } else if (phase === "VOTING" && winnerPid) {
+          setChatMessages((prev) => [...prev, { type: "system", text: `${winnerName} guessed correctly. Round ended. Vote next.` }]);
+          setShowMessage(true);
+          setMessage("Round ended. Vote next.");
+        } else if (phase === "VOTING") {
+          setChatMessages((prev) => [...prev, { type: "system", text: "Time is up. No correct guess this round. Vote next." }]);
+          setShowMessage(true);
+          setMessage("TIME'S UP! Vote next.");
+        }
+      }
+    } else {
+      roundEndHandledKeyRef.current = "";
+      routedToWinRef.current = false;
+    }
+
+    if (snapshot?.room?.state === "ROLE_PICK") {
+      if (!rolePickHandledRef.current) {
+        rolePickHandledRef.current = true;
+        setShowMessage(true);
+        setMessage("Play Again wins! New roles assigned.");
+        setTimeout(() => { handoffToRolePick(); }, 900);
+      }
+      return;
+    }
+
+    if (snapshot?.room?.state !== "GAME_END" || String(snapshot?.game?.phase || "") !== "VOTING") {
+      setHasVoted(false);
+    }
+    if (snapshot?.room?.state === "IN_GAME") {
+      rolePickHandledRef.current = false;
+      setGameState((prev) => ({ ...prev, isGameOver: false, isPaused: false }));
+    }
+  }, [snapshot, goToSingleWin, roomCode, handoffToRolePick]);
+
+  useEffect(() => {
+    const msg = ws.lastMsg;
+    if (!msg) return;
+
+    if (msg.type === "op_broadcast" && msg.op) {
+      opsRef.current = [...opsRef.current, msg.op];
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const s = opToStroke(msg.op, canvas);
+        if (s?.type === "clear") {
+          strokesRef.current = [];
+          renderStrokes();
+        } else if (s?.type === "erase") {
+          const radius = Math.max(6, (s.size || 6) * 1.5);
+          const distPointToSegmentLocal = (p, a, b) => {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+            const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+            const clamped = Math.max(0, Math.min(1, t));
+            const cx = a.x + clamped * dx;
+            const cy = a.y + clamped * dy;
+            return Math.hypot(p.x - cx, p.y - cy);
+          };
+          const hitStrokeLocal = (stroke, point) => {
+            const r = radius + (stroke.size || 1) / 2;
+            if (stroke.type === 'line') {
+              return distPointToSegmentLocal(point, stroke.start, stroke.end) <= r;
+            }
+            if (stroke.type === 'circle') {
+              const d = Math.hypot(point.x - stroke.center.x, point.y - stroke.center.y);
+              return Math.abs(d - stroke.radius) <= r;
+            }
+            if (stroke.type === 'free') {
+              const pts = stroke.points || [];
+              for (let i = 1; i < pts.length; i += 1) {
+                if (distPointToSegmentLocal(point, pts[i - 1], pts[i]) <= r) return true;
+              }
+              return false;
+            }
+            return false;
+          };
+          const next = [];
+          strokesRef.current.forEach((st) => {
+            const shouldErase = s.points.some((pt) => hitStrokeLocal(st, pt));
+            if (!shouldErase) next.push(st);
+          });
+          strokesRef.current = next;
+          renderStrokes();
+        } else if (s) {
+          strokesRef.current = [...strokesRef.current, s];
+          renderStrokes();
+        }
+      }
+      bumpOps();
+    }
+
+    if (msg.type === "guess_chat") {
+      const sender = String(msg.name || "Player");
+      const text = String(msg.text || "").trim();
+      if (!text) return;
+      setChatMessages((prev) => [...prev, { type: "user", text: `${sender}: ${text}` }]);
+    }
+
+    if (msg.type === "guess_result" && msg.correct) {
+      ws.send({ type: "snapshot" });
+    }
+
+    if (msg.type === "budget_update" && msg.budget && typeof msg.budget.stroke_remaining === "number") {
+      setGameState((prev) => {
+        const used = Math.max(0, strokeLimit - Number(msg.budget.stroke_remaining));
+        return { ...prev, strokesUsed: used };
+      });
+    }
+
+    if (msg.type === "error" && msg.code === "NOT_GUESSER") {
+      setShowMessage(true);
+      setMessage("Only guessers can send guesses.");
+    }
+
+    if (msg.type === "room_state_changed" && msg.state === "ROLE_PICK") {
+      if (!rolePickHandledRef.current) {
+        rolePickHandledRef.current = true;
+        setShowMessage(true);
+        setMessage("Play Again wins! New roles assigned.");
+        setTimeout(() => { handoffToRolePick(); }, 900);
+      }
+      return;
+    }
+
+    if (
+      msg.type === "room_state_changed" ||
+      msg.type === "phase_changed" ||
+      msg.type === "roles_assigned" ||
+      msg.type === "player_joined" ||
+      msg.type === "player_left" ||
+      msg.type === "game_end"
+    ) {
+      ws.send({ type: "snapshot" });
+    }
+  }, [ws.lastMsg, ws.send, strokeLimit, handoffToRolePick]);
+
+  useEffect(() => {
+    if (ws.status === "CONNECTED") {
+      ws.send({ type: "snapshot" });
+    }
+  }, [ws.status, ws.send]);
+
+const MAX_TIME = 60;
   const MAX_STROKES = 30;
   
   // Game state
@@ -50,6 +472,8 @@ const SingleGame = () => {
     score: 0
   });
 
+  const strokesRemaining = strokeLimit ? Math.max(0, strokeLimit - (gameState?.strokesUsed || 0)) : 0;
+
   // UI state
   const [isDrawing, setIsDrawing] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
@@ -60,18 +484,12 @@ const SingleGame = () => {
     { type: 'system', text: 'Game Started! Good luck!' }
   ]);
   const [chatInput, setChatInput] = useState('');
+  const [hasVoted, setHasVoted] = useState(false);
   
   // Audio settings
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [hintsEnabled, setHintsEnabled] = useState(true);
-
-  // Mock players data
-  const players = [
-    { id: 1, name: 'Aye Aye (You)', avatar: 'A', score: 1200, isHost: true, color: 'var(--accent)' },
-    { id: 2, name: 'Player 2', avatar: '2', score: 950, isHost: false },
-    { id: 3, name: 'Player 3', avatar: '3', score: 800, isHost: false }
-  ];
 
   // ================= AUDIO ENGINE =================
   class AudioEngine {
@@ -232,28 +650,17 @@ const SingleGame = () => {
 
   // Game timer
   useEffect(() => {
-    gameIntervalRef.current = setInterval(() => {
-      setGameState(prev => {
-        if (prev.timeLeft > 0 && !prev.isPaused && !prev.isGameOver) {
-          const newTimeLeft = prev.timeLeft - 1;
-          return { ...prev, timeLeft: newTimeLeft };
-        } else if (prev.timeLeft <= 0 && !prev.isGameOver) {
-          clearInterval(gameIntervalRef.current);
-          audioEngineRef.current?.playGameOver();
-          setShowMessage(true);
-          setMessage("TIME'S UP!");
-          return { ...prev, isGameOver: true };
-        }
-        return prev;
-      });
-    }, 1000);
-    
-    return () => {
-      if (gameIntervalRef.current) {
-        clearInterval(gameIntervalRef.current);
-      }
-    };
-  }, []);
+    if (!hasServerTimer) return;
+    setGameState((prev) => ({
+      ...prev,
+      timeLeft: serverTimeLeft,
+    }));
+  }, [hasServerTimer, serverTimeLeft]);
+
+  useEffect(() => {
+    if (!strokeLimit) return;
+    setGameState((prev) => ({ ...prev, strokesUsed }));
+  }, [strokeLimit, strokesUsed]);
 
   // Message timeout
   useEffect(() => {
@@ -360,7 +767,6 @@ const SingleGame = () => {
     if (!canvas) return { x: 0, y: 0 };
     
     const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return { x: 0, y: 0 };
     let clientX, clientY;
     
     if (e.touches) {
@@ -377,85 +783,81 @@ const SingleGame = () => {
     const y = (clientY - rect.top) * scaleY;
     return {
       x: Math.max(0, Math.min(LOGICAL_CANVAS_W, x)),
-      y: Math.max(0, Math.min(LOGICAL_CANVAS_H, y)),
+      y: Math.max(0, Math.min(LOGICAL_CANVAS_H, y))
     };
   }, []);
 
   const startDrawing = useCallback((e) => {
     e.preventDefault?.();
-    
+    if (!canDraw) return;
+    if (strokeLimit && strokesRemaining <= 0) {
+      audioEngineRef.current?.playError();
+      setShowMessage(true);
+      setMessage("OUT OF INK!");
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
-    setGameState(prev => {
-      if (prev.isGameOver || prev.isPaused) return prev;
-      if (prev.strokesUsed >= MAX_STROKES) {
-        audioEngineRef.current?.playError();
-        setShowMessage(true);
-        setMessage("OUT OF INK!");
-        return prev;
-      }
-      
-      const newStrokes = prev.mode === 'erase' ? prev.strokesUsed : prev.strokesUsed + 1;
-      setIsDrawing(true);
-      audioEngineRef.current?.playDrawStart();
-      
-      const { x, y } = getCanvasCoordinates(e);
 
+    if (gameState.isGameOver || gameState.isPaused) return;
+    setIsDrawing(true);
+    audioEngineRef.current?.playDrawStart();
+
+    const { x, y } = getCanvasCoordinates(e);
+
+    ctx.beginPath();
+    ctx.lineWidth = gameState.size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (gameState.mode === 'erase') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = gameState.color;
+      ctx.fillStyle = gameState.color;
+    }
+
+    if (gameState.mode === 'erase') {
+      shapeStartRef.current = null;
+      shapeBaseImageRef.current = null;
       ctx.beginPath();
-      ctx.lineWidth = prev.size;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      
-      if (prev.mode === 'erase') {
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.strokeStyle = 'rgba(0,0,0,1)';
-        ctx.fillStyle = 'rgba(0,0,0,1)';
-      } else {
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = prev.color;
-        ctx.fillStyle = prev.color;
-      }
-
-      if (prev.mode === 'erase') {
-        shapeStartRef.current = null;
-        shapeBaseImageRef.current = null;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        eraserPathRef.current = [{ x, y }];
-      } else if (prev.mode === 'draw' && (prev.brush === 'line' || prev.brush === 'circle')) {
-        currentStrokeRef.current = {
-          type: prev.brush,
-          color: prev.color,
-          size: prev.size,
-          start: { x, y },
-          end: { x, y },
-          center: { x, y },
-          radius: 0
-        };
-      } else if (prev.brush === 'circle') {
-        ctx.beginPath();
-        ctx.arc(x, y, prev.size / 2, 0, Math.PI * 2);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        currentStrokeRef.current = {
-          type: 'free',
-          color: prev.color,
-          size: prev.size,
-          points: [{ x, y }]
-        };
-      }
-      
-      return { ...prev, strokesUsed: newStrokes };
-    });
-  }, [getCanvasCoordinates]);
+      ctx.moveTo(x, y);
+      eraserPathRef.current = [{ x, y }];
+    } else if (gameState.mode === 'draw' && (gameState.brush === 'line' || gameState.brush === 'circle')) {
+      currentStrokeRef.current = {
+        type: gameState.brush,
+        color: gameState.color,
+        size: gameState.size,
+        start: { x, y },
+        end: { x, y },
+        center: { x, y },
+        radius: 0
+      };
+    } else if (gameState.brush === 'circle') {
+      ctx.beginPath();
+      ctx.arc(x, y, gameState.size / 2, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      currentStrokeRef.current = {
+        type: 'free',
+        color: gameState.color,
+        size: gameState.size,
+        points: [{ x, y }]
+      };
+    }
+  }, [canDraw, strokeLimit, strokesRemaining, gameState, getCanvasCoordinates]);
 
   const draw = useCallback((e) => {
     e.preventDefault?.();
+    if (!canDraw) return;
     if (!isDrawing) return;
     
     const canvas = canvasRef.current;
@@ -502,9 +904,10 @@ const SingleGame = () => {
       
       return prev;
     });
-  }, [isDrawing, getCanvasCoordinates, drawStroke, renderStrokes, eraseAt]);
+  }, [canDraw, isDrawing, getCanvasCoordinates, drawStroke, renderStrokes, eraseAt]);
 
   const stopDrawing = useCallback(() => {
+    if (!canDraw) return;
     setIsDrawing(false);
     audioEngineRef.current?.playDrawStop();
     
@@ -512,18 +915,42 @@ const SingleGame = () => {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (ctx) {
+      if (gameState.mode === 'erase') {
+        const path = eraserPathRef.current || [];
+        eraserPathRef.current = [];
+        if (path.length >= 2) {
+          const pts = path.map((pt) => [pt.x, pt.y]);
+          const op = { t: "line", p: { pts, w: gameState.size, erase: 1 } };
+          opsRef.current = [...opsRef.current, op];
+          ws.send({ type: "draw_op", op });
+          bumpOps();
+        }
+        ctx.closePath();
+        ctx.globalCompositeOperation = 'source-over';
+        return;
+      }
+
       if (gameState.mode === 'draw') {
         const stroke = currentStrokeRef.current;
         if (stroke) {
+          // 1) keep local render smooth
           strokesRef.current.push(stroke);
           currentStrokeRef.current = null;
           renderStrokes();
+
+          // 2) broadcast to server so everyone sees it
+          const op = strokeToOp(stroke, canvas);
+          if (op) {
+            opsRef.current = [...opsRef.current, op];
+            ws.send({ type: "draw_op", op });
+            bumpOps();
+          }
         }
       }
       ctx.closePath();
       ctx.globalCompositeOperation = 'source-over';
     }
-  }, [gameState.mode, renderStrokes]);
+  }, [canDraw, gameState.mode, gameState.size, renderStrokes, bumpOps, ws.send]);
 
   // Canvas event listeners
   useEffect(() => {
@@ -551,8 +978,10 @@ const SingleGame = () => {
 
   // ========== TOOL FUNCTIONS ==========
   const setTool = (type, value, el) => {
+    if (!canDraw) return;
     setGameState(prev => {
-      if (prev.strokesUsed >= MAX_STROKES || prev.isPaused) return prev;
+      const limit = strokeLimit || MAX_STROKES;
+      if (prev.strokesUsed >= limit || prev.isPaused) return prev;
       
       audioEngineRef.current?.playClick();
       
@@ -570,14 +999,17 @@ const SingleGame = () => {
   };
 
   const useEraser = () => {
+    if (!canDraw) return;
     setGameState(prev => {
-      if (prev.strokesUsed >= MAX_STROKES || prev.isPaused) return prev;
+      const limit = strokeLimit || MAX_STROKES;
+      if (prev.strokesUsed >= limit || prev.isPaused) return prev;
       audioEngineRef.current?.playClick();
       return { ...prev, mode: 'erase' };
     });
   };
 
   const clearCanvas = () => {
+    if (!canDraw) return;
     setGameState(prev => {
       if (prev.isPaused) return prev;
       
@@ -585,22 +1017,30 @@ const SingleGame = () => {
       strokesRef.current = [];
       currentStrokeRef.current = null;
       renderStrokes();
-      
       return prev;
     });
+    const op = { t: "line", p: { pts: [[0, 0], [0, 0]], w: gameState.size, clear: 1 } };
+    opsRef.current = [...opsRef.current, op];
+    ws.send({ type: "draw_op", op });
   };
 
   // ========== CHAT FUNCTIONS ==========
   const sendMessage = () => {
+    if (!canGuess) return;
     if (!chatInput.trim()) return;
-    
-    setChatMessages(prev => [
-      ...prev,
-      { type: 'user', text: chatInput }
-    ]);
-    
+    const guessText = chatInput.trim();
+
+    ws.send({ type: "guess", text: guessText });
     setChatInput('');
     audioEngineRef.current?.playClick();
+  };
+
+  const sendVoteNext = (vote) => {
+    if (!isVotingPhase || hasVoted) return;
+    ws.send({ type: "vote_next", vote });
+    setHasVoted(true);
+    setShowMessage(true);
+    setMessage(vote === "yes" ? "Voted: Play Again" : "Voted: Stop");
   };
 
   // ========== MODAL FUNCTIONS ==========
@@ -625,8 +1065,10 @@ const SingleGame = () => {
   };
 
   // ========== UI CALCULATIONS ==========
-  const strokePercentage = (gameState.strokesUsed / MAX_STROKES) * 100;
-  const timePercentage = (gameState.timeLeft / MAX_TIME) * 100;
+  const effectiveMaxStrokes = strokeLimit || MAX_STROKES;
+  const strokePercentage = (gameState.strokesUsed / Math.max(1, effectiveMaxStrokes)) * 100;
+  const effectiveMaxTime = hasServerTimer && timeLimitSec ? timeLimitSec : MAX_TIME;
+  const timePercentage = (gameState.timeLeft / Math.max(1, effectiveMaxTime)) * 100;
   
   const getStrokeBarColor = () => {
     if (strokePercentage > 80) return '#ef4444';
@@ -654,7 +1096,7 @@ const SingleGame = () => {
 
           <div className="data-item">
             <span className="data-label">Round</span>
-            <span className="data-value">{gameState.round}/{gameState.maxRounds}</span>
+            <span className="data-value">{roomRoundNo}</span>
           </div>
 
           <div className="data-item">
@@ -674,6 +1116,12 @@ const SingleGame = () => {
         
         {/* Center: Timer */}
         <div className="center-group">
+          {canSeeSecret && secretWord && (
+            <div className="secret-pill" style={{ fontSize: 12, opacity: 0.9, marginBottom: 4 }}>
+              Word: <b>{secretWord}</b>
+            </div>
+          )}
+
           <div className="timer-box" style={{ color: getTimerColor() }}>
             {gameState.timeLeft}
           </div>
@@ -692,7 +1140,7 @@ const SingleGame = () => {
         <div className="right-group">
           <div className="data-item">
             <span className="data-label">Score</span>
-            <span className="data-value score">{gameState.score}</span>
+            <span className="data-value score">{myScore}</span>
           </div>
 
           {/* Exit Icon */}
@@ -713,7 +1161,7 @@ const SingleGame = () => {
       <div className="game-container">
         
         <div className="canvas-area">
-          <canvas ref={canvasRef} id="canvasMain"></canvas>
+          <canvas ref={canvasRef} id="canvasMain" style={!canDraw ? { pointerEvents: 'none' } : undefined}></canvas>
           {showMessage && (
             <div className="overlay-msg" id="gameMsg">
               {message}
@@ -811,21 +1259,67 @@ const SingleGame = () => {
               <input 
                 type="text" 
                 className="guess-box" 
-                placeholder="Type guess..." 
+                placeholder={
+                  canGuess
+                    ? "Type guess..."
+                    : !isInRound
+                      ? "Guessing opens when game starts"
+                      : "Only guessers can type guesses"
+                }
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                onKeyPress={(e) => {
+                disabled={!canGuess}
+                onKeyDown={(e) => {
                   if (e.key === 'Enter') sendMessage();
+                  if (!canGuess) return;
                   audioEngineRef.current?.playTyping();
                 }}
               />
-              <button className="send-btn" onClick={sendMessage}>SEND</button>
+              <button className="send-btn" onClick={sendMessage} disabled={!canGuess}>SEND</button>
             </div>
           </div>
+
         </aside>
       </div>
 
       {/* ================= MODALS ================= */}
+
+      {/* Round End Vote Popup */}
+      {isVotingPhase && !showExitModal && !showSettingsModal && (
+        <div className="modal-overlay active" id="roundEndVoteModal">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h2 className="modal-title">
+                {roundEndWinnerPid ? `${roundEndWinnerName} is correct!` : "TIME'S UP!"}
+              </h2>
+              <p style={{ color: 'var(--text-muted)', marginTop: '8px' }}>
+                Play next round or stop?
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="btn-modal btn-resume"
+                disabled={hasVoted}
+                onClick={() => sendVoteNext('yes')}
+              >
+                PLAY NEXT ROUND
+              </button>
+              <button
+                className="btn-modal btn-exit"
+                disabled={hasVoted}
+                onClick={() => sendVoteNext('no')}
+              >
+                STOP
+              </button>
+            </div>
+            {hasVoted && (
+              <p style={{ color: '#a3e635', marginTop: '10px', textAlign: 'center' }}>
+                Vote submitted. Waiting for other players...
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Exit / Pause Menu */}
       {showExitModal && (
@@ -836,7 +1330,7 @@ const SingleGame = () => {
               <p style={{ color: 'var(--text-muted)', marginTop: '5px' }}>Current Round Summary</p>
             </div>
             <div className="player-list-exit">
-              {players.map((player) => (
+              {livePlayers.map((player) => (
                 <div key={player.id} className="player-row">
                   <div 
                     className="p-avatar" 
