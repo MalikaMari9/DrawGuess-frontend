@@ -1,14 +1,8 @@
+
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useRoomWSContext } from "../ws/RoomWSContext";
 import "../styles/BattleWinFinal.css";
-
-const pickTheme = (p) => {
-  const key = (p?.pid || p?.name || "").toString();
-  if (!key) return "theme-red";
-  const c = key.charCodeAt(key.length - 1) || 0;
-  return c % 2 === 0 ? "theme-blue" : "theme-red";
-};
 
 const BattleWinFinal = () => {
   const navigate = useNavigate();
@@ -16,6 +10,7 @@ const BattleWinFinal = () => {
 
   const snapshot = ws.snapshot || {};
   const players = snapshot.players || [];
+  const myPid = ws.pid || localStorage.getItem("dg_pid");
 
   const leaderboard = useMemo(() => {
     const list = (players || []).map((p) => ({
@@ -23,16 +18,28 @@ const BattleWinFinal = () => {
       name: p.name || "Unknown",
       points: Number(p.points || 0),
       connected: p?.connected !== false,
+      isSelf: myPid && p.pid === myPid,
     }));
     list.sort((a, b) => {
       if (b.points !== a.points) return b.points - a.points;
       return (a.name || "").localeCompare(b.name || "");
     });
+    let rank = 0;
+    let prevPoints = null;
+    list.forEach((p, idx) => {
+      if (prevPoints === null || p.points < prevPoints) {
+        rank = idx + 1;
+        prevPoints = p.points;
+      }
+      p.rank = rank;
+    });
     return list;
-  }, [players]);
+  }, [players, myPid]);
 
   const champion = leaderboard[0] || null;
-  const theme = pickTheme(champion);
+  const topScore = champion ? champion.points : null;
+  const winners = topScore === null ? [] : leaderboard.filter((p) => p.points === topScore);
+  const winnerNames = winners.length ? winners.map((p) => p.name).join(" · ") : "-";
 
   // Confetti (simple + light)
   const canvasRef = useRef(null);
@@ -49,7 +56,7 @@ const BattleWinFinal = () => {
     canvas.width = width;
     canvas.height = height;
 
-    const color = theme === "theme-blue" ? "#2e86de" : "#ff4757";
+    const colors = ["#ffffff", "#e6f0ff", "#ffe6f0", "#e8f7ff", "#f3e8ff"];
     const particleCount = 90;
 
     class Particle {
@@ -61,6 +68,7 @@ const BattleWinFinal = () => {
         this.speedX = Math.random() * 1 - 0.5;
         this.rotation = Math.random() * 360;
         this.rotationSpeed = Math.random() * 5 - 2.5;
+        this.color = colors[Math.floor(Math.random() * colors.length)];
       }
       update() {
         this.y += this.speedY;
@@ -75,7 +83,7 @@ const BattleWinFinal = () => {
         c.save();
         c.translate(this.x, this.y);
         c.rotate((this.rotation * Math.PI) / 180);
-        c.fillStyle = color;
+        c.fillStyle = this.color;
         c.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
         c.restore();
       }
@@ -106,7 +114,7 @@ const BattleWinFinal = () => {
       window.removeEventListener("resize", handleResize);
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [theme]);
+  }, []);
 
   useEffect(() => {
     if (ws.status === "CONNECTED") ws.send({ type: "snapshot" });
@@ -121,7 +129,7 @@ const BattleWinFinal = () => {
   }, [ws.lastMsg, navigate]);
 
   return (
-    <div className={`battle-container ${theme}`}>
+    <div className="battle-container">
       <canvas ref={canvasRef} id="confetti-canvas" className="confetti-canvas" />
 
       <div className="battle-card">
@@ -133,8 +141,10 @@ const BattleWinFinal = () => {
         </div>
 
         <div className="winner-banner">
-          <span className="team-badge">{champion ? champion.name : "-"}</span>
-          <span className="result-label">{champion ? `Top Score: ${champion.points}` : "No players"}</span>
+          <span className="team-badge">{winnerNames}</span>
+          <span className="result-label">
+            {topScore !== null ? `Top Score: ${topScore}` : "No players"}
+          </span>
         </div>
 
         <div className="history-section">
@@ -144,9 +154,13 @@ const BattleWinFinal = () => {
               const opacity = p.connected ? 1 : 0.55;
               return (
                 <div key={p.pid || `${p.name}-${idx}`} className="round-row" style={{ opacity }}>
-                  <span className="round-label">#{idx + 1}</span>
+                  <span className="round-label">#{p.rank}</span>
                   <span className="round-winner-badge">
-                    {p.name} · {p.points} pts{p.connected ? "" : " (disconnected)"}
+                    {p.name}
+                    {p.rank === 1 ? " 👑" : ""}
+                    {p.isSelf ? <span className="you-badge">YOU</span> : null}
+                    {" · "}
+                    {p.points} pts{p.connected ? "" : " (disconnected)"}
                   </span>
                 </div>
               );
@@ -155,7 +169,7 @@ const BattleWinFinal = () => {
         </div>
 
         <div className="action-row">
-          <button className="action-btn" onClick={() => navigate("/select-mode")}>
+          <button className="action-btn" onClick={() => navigate("/")}>
             Main Menu
           </button>
         </div>

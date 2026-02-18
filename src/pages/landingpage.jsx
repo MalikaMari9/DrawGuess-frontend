@@ -7,6 +7,7 @@ const LandingPage = () => {
   const { ws, nickname, setNickname } = useRoomWSContext();
   const [roomCode, setRoomCode] = useState("");
   const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("Please enter a nickname!");
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [joinPending, setJoinPending] = useState(false);
@@ -15,6 +16,7 @@ const LandingPage = () => {
   const audioContextRef = useRef(null);
   const musicOscRef = useRef(null);
   const musicGainRef = useRef(null);
+  const toastTimerRef = useRef(null);
   
   const navigate = useNavigate(); // ✅ useNavigate ကို သုံးပါ
 
@@ -135,15 +137,22 @@ const LandingPage = () => {
     playTyping();
   };
 
+  const triggerToast = (message) => {
+    setToastMessage(message);
+    setShowToast(true);
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = setTimeout(() => {
+      setShowToast(false);
+    }, 2000);
+  };
+
   // Handle play button click
   const handlePlay = () => {
     if (!nickname.trim()) {
       playError();
-      setShowToast(true);
-      
-      setTimeout(() => {
-        setShowToast(false);
-      }, 2000);
+      triggerToast("Please enter a nickname!");
       return;
     }
 
@@ -163,10 +172,7 @@ const LandingPage = () => {
   const handleJoin = async () => {
     if (!nickname.trim()) {
       playError();
-      setShowToast(true);
-      setTimeout(() => {
-        setShowToast(false);
-      }, 2000);
+      triggerToast("Please enter a nickname!");
       return;
     }
     if (!roomCode.trim()) return;
@@ -174,12 +180,18 @@ const LandingPage = () => {
     playClick();
     setIsLoading(true);
     const code = roomCode.trim().toUpperCase();
+    const savedRoom = localStorage.getItem("dg_room");
+    const savedPid = localStorage.getItem("dg_pid");
     const ok = await ws.connectWaitOpen(code);
     if (!ok) {
       setIsLoading(false);
       return;
     }
-    ws.send({ type: 'join', name: nickname.trim() });
+    if (savedRoom === code && savedPid) {
+      ws.send({ type: "reconnect", pid: savedPid });
+    } else {
+      ws.send({ type: 'join', name: nickname.trim() });
+    }
     ws.send({ type: 'snapshot' });
     setJoinPending(true);
   };
@@ -195,6 +207,12 @@ const LandingPage = () => {
       navigate(mode === 'VS' ? '/battle-lobby' : '/single-lobby');
     }
     if (m.type === 'error') {
+      if (m.code === "ROOM_NOT_FOUND") {
+        triggerToast("Room not found.");
+      }
+      if (m.code === "PLAYER_NOT_FOUND") {
+        localStorage.removeItem("dg_pid");
+      }
       setJoinPending(false);
       setIsLoading(false);
     }
@@ -270,7 +288,7 @@ const LandingPage = () => {
 
       {/* Toast Notification */}
       <div className={`toast ${showToast ? 'show' : ''}`}>
-        Please enter a nickname!
+        {toastMessage}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ import BattleWinFinal from "./pages/BattlwWinFinal";
 import RolePick from "./pages/RolePick";
 import WaitingRoom from "./pages/WaitingRoom";
 import AdminPanel from "./pages/AdminPanel";
+import AnimationTester from "./pages/AnimationTester";
 
 import "./App.css";
 import { RoomWSProvider } from "./ws/RoomWSContext";
@@ -46,6 +47,7 @@ function App() {
           <Route path="/role-pick" element={<RolePick />} />
           <Route path="/waiting-room" element={<WaitingRoom />} />
           <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/anim-test" element={<AnimationTester />} />
 
           <Route
             path="*"

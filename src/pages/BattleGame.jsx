@@ -3,6 +3,28 @@ import { useNavigate } from 'react-router-dom';
 import { useRoomWSContext } from "../ws/RoomWSContext";
 import '../styles/BattleGame.css';
 
+const LOGICAL_CANVAS_W = 1024;
+const LOGICAL_CANVAS_H = 768;
+const TRANSITION_DELAY_MS = 1500;
+const TRANSITION_TIME_UP_MS = 900;
+const TRANSITION_SHOW_MS = 1300;
+const TRANSITION_OUT_MS = 700;
+
+const fitCanvasToWrapper = (canvas) => {
+  if (!canvas) return;
+  const parent = canvas.parentElement;
+  if (!parent) return;
+  const rect = parent.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const scale = Math.min(rect.width / LOGICAL_CANVAS_W, rect.height / LOGICAL_CANVAS_H);
+  const displayW = Math.max(1, Math.floor(LOGICAL_CANVAS_W * scale));
+  const displayH = Math.max(1, Math.floor(LOGICAL_CANVAS_H * scale));
+  canvas.width = LOGICAL_CANVAS_W;
+  canvas.height = LOGICAL_CANVAS_H;
+  canvas.style.width = `${displayW}px`;
+  canvas.style.height = `${displayH}px`;
+};
+
 const BattleGame = () => {
   const navigate = useNavigate();
   const { ws } = useRoomWSContext();
@@ -29,6 +51,7 @@ const BattleGame = () => {
   const teamLabel = myTeam === "A" ? "Red Team" : myTeam === "B" ? "Blue Team" : "No Team";
   const teamAPlayers = players.filter((p) => p.team === "A").map((p) => p.name || "Player");
   const teamBPlayers = players.filter((p) => p.team === "B").map((p) => p.name || "Player");
+  const secretWord = snapshot.round_config?.secret_word || "";
 
   const round = Number(room?.round_no || 1);
   const redTeam = { name: 'Red Team', players: teamAPlayers };
@@ -39,18 +62,25 @@ const BattleGame = () => {
   const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
   const [roundEndAt, setRoundEndAt] = useState(Number(snapshot.game?.draw_end_at || 0));
   const [guessEndAt, setGuessEndAt] = useState(Number(snapshot.game?.guess_end_at || 0));
-  const [maxStrokes, setMaxStrokes] = useState(
+  const initialMaxStrokes =
     typeof snapshot.round_config?.strokes_per_phase === "number"
       ? snapshot.round_config.strokes_per_phase
-      : 15
-  );
+      : 15;
+  const [maxStrokes, setMaxStrokes] = useState(initialMaxStrokes);
   const [phase, setPhase] = useState(snapshot.game?.phase || "");
-  const [budget, setBudget] = useState({ A: 0, B: 0 });
+  const [budget, setBudget] = useState(() => {
+    const b = snapshot.game?.budget;
+    if (b && (typeof b.A === "number" || typeof b.B === "number")) {
+      return {
+        A: Number(b.A ?? initialMaxStrokes),
+        B: Number(b.B ?? initialMaxStrokes),
+      };
+    }
+    return { A: initialMaxStrokes, B: initialMaxStrokes };
+  });
   const [sabotageCooldown, setSabotageCooldown] = useState({ A: 0, B: 0 });
   const remainingA = Number(budget?.A ?? maxStrokes);
   const remainingB = Number(budget?.B ?? maxStrokes);
-  const team1Strokes = Math.max(0, maxStrokes - remainingA);
-  const team2Strokes = Math.max(0, maxStrokes - remainingB);
   const team1CooldownLeft = Math.max(0, Number(sabotageCooldown.A || 0) - nowSec);
   const team2CooldownLeft = Math.max(0, Number(sabotageCooldown.B || 0) - nowSec);
   const team1SabotageOnCooldown = team1CooldownLeft > 0;
@@ -65,7 +95,6 @@ const BattleGame = () => {
   const canDrawB = phase === "DRAW" && isDrawerB;
   const teamGuessed = snapshot.game?.team_guessed || {};
   const teamAlreadyGuessed = myTeam ? !!teamGuessed[myTeam] : false;
-
   // Tool states for Team 1
   const [team1Color, setTeam1Color] = useState('#000000');
   const [team1Size, setTeam1Size] = useState(6);
@@ -114,6 +143,31 @@ const BattleGame = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [hintsEnabled, setHintsEnabled] = useState(true);
+
+  // Transition overlay state
+  const transitionFront = snapshot.game?.transition_front || "";
+  const transitionBack = snapshot.game?.transition_back || "";
+  const transitionActive = snapshot.game?.phase === "TRANSITION";
+  const transitionUntil = Number(snapshot.game?.transition_until || 0);
+  const transitionRemaining = transitionUntil ? transitionUntil - nowSec : 0;
+  const [transitionKey, setTransitionKey] = useState(0);
+  const [transitionStarted, setTransitionStarted] = useState(false);
+  const [transitionFlipped, setTransitionFlipped] = useState(false);
+  const [transitionExit, setTransitionExit] = useState(false);
+  const transitionStartRef = useRef(null);
+  const transitionTimerRef = useRef(null);
+  const transitionExitRef = useRef(null);
+  const transitionTickSentRef = useRef(false);
+  const transitionFrontClass = transitionFront.includes("WINNER")
+    ? "phase-winner"
+    : "phase-timeup";
+  const transitionBackClass = transitionBack.includes("GUESS PHASE")
+    ? "phase-guess"
+    : transitionBack.includes("DRAW PHASE")
+    ? "phase-draw"
+    : transitionBack.toLowerCase().includes("correct")
+    ? "phase-correct"
+    : "phase-neutral";
 
   // Score state
   const [redScore, setRedScore] = useState(0);
@@ -170,6 +224,56 @@ const BattleGame = () => {
     phaseZeroSnapshotRef.current = true;
     ws.send({ type: "snapshot" });
   }, [phaseTimeLeft, phase, ws.status, ws.send]);
+
+  useEffect(() => {
+    if (!transitionActive) {
+      if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+      setTransitionFlipped(false);
+      setTransitionExit(false);
+      setTransitionStarted(false);
+      return;
+    }
+    if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+    setTransitionFlipped(false);
+    setTransitionExit(false);
+    setTransitionStarted(false);
+    transitionStartRef.current = setTimeout(() => {
+      setTransitionStarted(true);
+      setTransitionKey((k) => k + 1);
+    }, TRANSITION_DELAY_MS);
+    transitionTimerRef.current = setTimeout(
+      () => setTransitionFlipped(true),
+      TRANSITION_DELAY_MS + TRANSITION_TIME_UP_MS
+    );
+    transitionExitRef.current = setTimeout(
+      () => setTransitionExit(true),
+      TRANSITION_DELAY_MS + TRANSITION_TIME_UP_MS + TRANSITION_SHOW_MS
+    );
+    return () => {
+      if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+    };
+  }, [transitionActive, transitionFront, transitionBack]);
+
+  useEffect(() => {
+    if (room.state !== "IN_GAME") return;
+    if (!transitionActive) {
+      transitionTickSentRef.current = false;
+      return;
+    }
+    if (transitionRemaining > 0) {
+      transitionTickSentRef.current = false;
+      return;
+    }
+    if (transitionTickSentRef.current) return;
+    transitionTickSentRef.current = true;
+    ws.send({ type: "phase_tick" });
+  }, [room.state, transitionActive, transitionRemaining, ws]);
 
   const handleResize = () => {
     resizeCanvas(1);
@@ -380,10 +484,11 @@ const BattleGame = () => {
       const pid = m.by;
       const team = m.team || players.find((x) => x.pid === pid)?.team;
       const result = m.result || (m.correct ? "CORRECT" : "WRONG");
-      const prefix = result === "CORRECT" ? "? Correct:" : result === "NO_GUESS" ? "? No guess:" : "? Wrong:";
-      const text = m.text || (result === "NO_GUESS" ? "No guess submitted" : "");
+      const prefix = result === "CORRECT" ? "Correct:" : result === "NO_GUESS" ? "No guess:" : "Wrong:";
+      const text = m.text || m.word || (result === "NO_GUESS" ? "No guess submitted" : "");
       const lineText = text ? `${prefix} ${text}` : prefix;
-      const line = { text: lineText, isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")) };
+      const kind = result === "WRONG" ? "wrong" : result === "NO_GUESS" ? "no-guess" : null;
+      const line = { text: lineText, isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")), kind };
       if (team && team === myTeam) {
         setHasGuessedThisPhase(true);
       }
@@ -510,19 +615,8 @@ const BattleGame = () => {
   const resizeCanvas = (teamId) => {
     const canvas = teamId === 1 ? canvas1Ref.current : canvas2Ref.current;
     if (!canvas) return;
-
-    const parent = canvas.parentElement;
-    const rect = parent.getBoundingClientRect();
-
-    // Save current canvas state
+    fitCanvasToWrapper(canvas);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-
-    // Restore canvas state
-    ctx.putImageData(imageData, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     renderStrokes(teamId);
@@ -821,7 +915,9 @@ const BattleGame = () => {
   }, [isDrawing2, team2Mode, ws.status, phase, myTeam, myRole]);
 
   const getCanvasCoordinates = (e, canvas) => {
+    if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return { x: 0, y: 0 };
     let clientX, clientY;
 
     if (e.touches) {
@@ -832,9 +928,13 @@ const BattleGame = () => {
       clientY = e.clientY;
     }
 
+    const scaleX = LOGICAL_CANVAS_W / rect.width;
+    const scaleY = LOGICAL_CANVAS_H / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top
+      x: Math.max(0, Math.min(LOGICAL_CANVAS_W, x)),
+      y: Math.max(0, Math.min(LOGICAL_CANVAS_H, y)),
     };
   };
 
@@ -1066,6 +1166,33 @@ const BattleGame = () => {
 
   return (
     <div className="battle-game-body">
+      {transitionActive && (
+        <div className="phase-overlay">
+          {transitionStarted && (
+            <div className="phase-flip-card">
+              <div
+                key={transitionKey}
+                className={`phase-flip-inner ${transitionFlipped ? "is-flipped" : ""}`}
+              >
+                <div className="phase-face phase-front">
+                  <div className={`phase-banner ${transitionFrontClass} pop-in`}>
+                    {transitionFront}
+                  </div>
+                </div>
+                <div className="phase-face phase-back">
+                  <div
+                    className={`phase-banner ${transitionBackClass} ${
+                      transitionFlipped ? "pop-in" : ""
+                    } ${transitionExit ? "pop-out" : ""}`}
+                  >
+                    {transitionBack}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {/* Top Bar */}
       <div className="top-bar">
         <div style={{ display: 'flex', gap: '10px' }}>
@@ -1113,6 +1240,7 @@ const BattleGame = () => {
         <div className="team-column" id="col1">
           {/* Header */}
           <div className="team-header header-red">
+            {isDrawerA && secretWord && <div className="secret-word">Secret: {secretWord}</div>}
             <div className="team-title-row">
               <span className="team-name" style={{ textShadow: '0 0 15px var(--c-red-glow)' }}>
                 {redTeam.name}
@@ -1132,7 +1260,7 @@ const BattleGame = () => {
                   className="stat-val"
                   style={{ color: remainingA <= 0 ? '#ff4757' : '#fff' }}
                 >
-                  {team1Strokes}/{maxStrokes}
+                  {remainingA}/{maxStrokes}
                 </span>
               </div>
             </div>
@@ -1257,7 +1385,7 @@ const BattleGame = () => {
             <div className="chat-main">
               <div className="chat-log-container" id="log1">
                 {team1Messages.map((msg, index) => (
-                  <div key={index} className={`msg ${msg.isOwn ? 'right' : ''}`}>
+                  <div key={index} className={`msg ${msg.isOwn ? 'right' : ''} ${msg.kind ? `msg--${msg.kind}` : ''}`}>
                     {msg.text}
                   </div>
                 ))}
@@ -1287,6 +1415,7 @@ const BattleGame = () => {
         <div className="team-column" id="col2">
           {/* Header */}
           <div className="team-header header-blue">
+            {isDrawerB && secretWord && <div className="secret-word">Secret: {secretWord}</div>}
             <div className="team-title-row">
               <span className="team-name" style={{ textShadow: '0 0 15px var(--c-blue-glow)' }}>
                 {blueTeam.name}
@@ -1306,7 +1435,7 @@ const BattleGame = () => {
                   className="stat-val"
                   style={{ color: remainingB <= 0 ? '#ff4757' : '#fff' }}
                 >
-                  {team2Strokes}/{maxStrokes}
+                  {remainingB}/{maxStrokes}
                 </span>
               </div>
             </div>
@@ -1431,7 +1560,7 @@ const BattleGame = () => {
             <div className="chat-main">
               <div className="chat-log-container" id="log2">
                 {team2Messages.map((msg, index) => (
-                  <div key={index} className={`msg ${msg.isOwn ? 'right' : ''}`}>
+                  <div key={index} className={`msg ${msg.isOwn ? 'right' : ''} ${msg.kind ? `msg--${msg.kind}` : ''}`}>
                     {msg.text}
                   </div>
                 ))}

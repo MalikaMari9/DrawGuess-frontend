@@ -2,6 +2,24 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../styles/SingleGame.css';
 
+const LOGICAL_CANVAS_W = 1024;
+const LOGICAL_CANVAS_H = 768;
+
+const fitCanvasToWrapper = (canvas) => {
+  if (!canvas) return;
+  const parent = canvas.parentElement;
+  if (!parent) return;
+  const rect = parent.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const scale = Math.min(rect.width / LOGICAL_CANVAS_W, rect.height / LOGICAL_CANVAS_H);
+  const displayW = Math.max(1, Math.floor(LOGICAL_CANVAS_W * scale));
+  const displayH = Math.max(1, Math.floor(LOGICAL_CANVAS_H * scale));
+  canvas.width = LOGICAL_CANVAS_W;
+  canvas.height = LOGICAL_CANVAS_H;
+  canvas.style.width = `${displayW}px`;
+  canvas.style.height = `${displayH}px`;
+};
+
 const SingleGame = () => {
   const navigate = useNavigate();
   const canvasRef = useRef(null);
@@ -196,9 +214,7 @@ const SingleGame = () => {
     if (!ctx) return;
     
     const resize = () => {
-      const rect = canvas.parentElement.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      fitCanvasToWrapper(canvas);
       
       // Canvas clear လုပ်ပြီး background ပြန်ဖြည့်
       ctx.fillStyle = 'white';
@@ -344,6 +360,7 @@ const SingleGame = () => {
     if (!canvas) return { x: 0, y: 0 };
     
     const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return { x: 0, y: 0 };
     let clientX, clientY;
     
     if (e.touches) {
@@ -354,9 +371,13 @@ const SingleGame = () => {
       clientY = e.clientY;
     }
     
+    const scaleX = LOGICAL_CANVAS_W / rect.width;
+    const scaleY = LOGICAL_CANVAS_H / rect.height;
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top
+      x: Math.max(0, Math.min(LOGICAL_CANVAS_W, x)),
+      y: Math.max(0, Math.min(LOGICAL_CANVAS_H, y)),
     };
   }, []);
 

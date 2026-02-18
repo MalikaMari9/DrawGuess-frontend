@@ -118,12 +118,12 @@ const BattleRoundWin = () => {
   }, [winnerTeam, room.state]);
 
   useEffect(() => {
-    if (!hasWinner) {
-      setViewState("lose");
-      return;
-    }
     if (isGM || !myTeam) {
       setViewState("neutral");
+      return;
+    }
+    if (!hasWinner) {
+      setViewState("lose");
       return;
     }
     setViewState(myTeam === winnerTeam ? "win" : "lose");
@@ -148,10 +148,10 @@ const BattleRoundWin = () => {
 
     if (m.type === 'game_end') {
       const wt = m.winner || "";
-      if (!wt) {
-        setViewState("lose");
-      } else if (isGM || !myTeam) {
+      if (isGM || !myTeam) {
         setViewState("neutral");
+      } else if (!wt) {
+        setViewState("lose");
       } else {
         setViewState(myTeam === wt ? "win" : "lose");
       }
@@ -255,7 +255,6 @@ const BattleRoundWin = () => {
         </div>
 
         <div id="state-neutral" className={viewState === 'neutral' ? '' : 'hidden'}>
-          <div className="result-icon">WIN</div>
           <h2 className="result-title color-win">{winner.name ? `${winner.name} Won!` : "Game Ended"}</h2>
 
           <div className="word-reveal-box">

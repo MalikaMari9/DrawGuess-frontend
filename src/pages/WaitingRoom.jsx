@@ -40,7 +40,7 @@ const WaitingRoom = () => {
   const [secret, setSecret] = useState("");
   const [strokeLimit, setStrokeLimit] = useState(12);
   const [timeLimit, setTimeLimit] = useState(240);
-  const [drawWindowSec, setDrawWindowSec] = useState(60);
+  const [drawWindowSec, setDrawWindowSec] = useState(10);
   const [strokesPerPhase, setStrokesPerPhase] = useState(4);
   const [guessWindowSec, setGuessWindowSec] = useState(10);
   const [maxRounds, setMaxRounds] = useState(5);
@@ -48,6 +48,7 @@ const WaitingRoom = () => {
   const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
   const [serverSync, setServerSync] = useState({ serverTs: 0, clientTs: 0 });
   const [secretReveal, setSecretReveal] = useState(false);
+  const startSentRef = useRef(false);
 
   const secretWord = roundConfig.secret_word || "";
   const configReady = Boolean(roundConfig.config_ready);
@@ -64,6 +65,22 @@ const WaitingRoom = () => {
       navigate(mode === "VS" ? "/battle-game" : "/single-game");
     }
   }, [room.state, navigate, mode]);
+
+  useEffect(() => {
+    if (room.state !== "CONFIG") {
+      startSentRef.current = false;
+      return;
+    }
+    if (!isGM) return;
+    if (!configReady) return;
+    if (countdownLeft == null || countdownLeft > 0) {
+      startSentRef.current = false;
+      return;
+    }
+    if (startSentRef.current) return;
+    startSentRef.current = true;
+    ws.send({ type: "start_game" });
+  }, [room.state, isGM, configReady, countdownLeft, ws]);
 
   useEffect(() => {
     const m = ws.lastMsg;
@@ -267,12 +284,20 @@ const WaitingRoom = () => {
             ) : (
               <>
                 <div className="form-row">
-                  <label htmlFor="strokesPerPhase">Strokes/Phase</label>
+                  <label htmlFor="strokesPerPhase">
+                    Strokes/Phase
+                    <span
+                      className="info-icon"
+                      data-tip="Allowed range: 1–20."
+                    >
+                      i
+                    </span>
+                  </label>
                   <input
                     id="strokesPerPhase"
                     type="number"
-                    min="3"
-                    max="5"
+                    min="1"
+                    max="20"
                     value={strokesPerPhase}
                     onChange={(e) => setStrokesPerPhase(Number(e.target.value))}
                   />

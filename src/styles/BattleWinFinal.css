@@ -1,14 +1,10 @@
 /* BattleWinFinal.css */
 :root {
   /* Colors */
-  --c-red: #ff4757;
-  --c-red-glow: rgba(255, 71, 87, 0.4);
-  --c-blue: #2e86de;
-  --c-blue-glow: rgba(46, 134, 222, 0.4);
   --bg-gradient: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
   
-  --glass-bg: rgba(30, 41, 59, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-border: rgba(255, 255, 255, 0.2);
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
 }
@@ -33,19 +29,6 @@
   overflow-x: hidden;
 }
 
-/* Theme Switching */
-.battle-container.theme-red {
-  --active-color: var(--c-red);
-  --active-glow: var(--c-red-glow);
-  --active-gradient: linear-gradient(to right, #b3001b, #ff4757);
-}
-
-.battle-container.theme-blue {
-  --active-color: var(--c-blue);
-  --active-glow: var(--c-blue-glow);
-  --active-gradient: linear-gradient(to right, #1c5da3, #2e86de);
-}
-
 /* Confetti Canvas */
 .confetti-canvas {
   position: fixed;
@@ -68,7 +51,7 @@
   border: 2px solid var(--glass-border);
   border-radius: 20px;
   padding: 1.5rem;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
   gap: 1.2rem;
@@ -76,17 +59,6 @@
   transition: box-shadow 0.5s ease;
   max-height: 90vh;
   overflow-y: auto;
-}
-
-/* Dynamic Glow based on theme */
-.battle-container.theme-red .battle-card {
-  box-shadow: 0 20px 50px var(--c-red-glow);
-  border-color: rgba(255, 71, 87, 0.3);
-}
-
-.battle-container.theme-blue .battle-card {
-  box-shadow: 0 20px 50px var(--c-blue-glow);
-  border-color: rgba(46, 134, 222, 0.3);
 }
 
 /* Header */
@@ -106,7 +78,7 @@
 
 /* Winner Banner */
 .winner-banner {
-  background: var(--active-gradient);
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
   padding: 1rem;
   border-radius: 12px;
@@ -114,7 +86,8 @@
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  box-shadow: 0 5px 15px var(--active-glow);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 5px 15px rgba(255, 255, 255, 0.08);
 }
 
 .winner-banner::after {
@@ -247,19 +220,9 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #334155;
-  border: 2px solid var(--bg-gradient);
+  background: #475569;
+  border: 2px solid rgba(255, 255, 255, 0.2);
   z-index: 2;
-}
-
-.round-row.winner-red::before {
-  background: var(--c-red);
-  box-shadow: 0 0 8px var(--c-red-glow);
-}
-
-.round-row.winner-blue::before {
-  background: var(--c-blue);
-  box-shadow: 0 0 8px var(--c-blue-glow);
 }
 
 .round-label {
@@ -273,19 +236,23 @@
   font-size: 0.7rem;
   padding: 3px 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
   font-weight: 700;
 }
 
-.round-winner-badge.red {
-  color: var(--c-red);
-  border: 1px solid var(--c-red);
-}
-
-.round-winner-badge.blue {
-  color: var(--c-blue);
-  border: 1px solid var(--c-blue);
+.you-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.55rem;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  vertical-align: middle;
 }
 
 /* Actions */
@@ -307,9 +274,9 @@
   letter-spacing: 1px;
   cursor: pointer;
   transition: 0.2s;
-  background: #fff;
-  color: orange;
-  box-shadow: 0 2px 10px rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.9);
+  color: #111827;
+  box-shadow: 0 2px 10px rgba(255, 255, 255, 0.12);
 }
 
 .action-btn:hover {
