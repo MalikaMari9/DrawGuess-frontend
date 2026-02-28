@@ -180,18 +180,16 @@ const LandingPage = () => {
     playClick();
     setIsLoading(true);
     const code = roomCode.trim().toUpperCase();
-    const savedRoom = localStorage.getItem("dg_room");
-    const savedPid = localStorage.getItem("dg_pid");
+    // Manual join should create/join as the current nickname, not silently reuse
+    // a previously saved player identity from this browser profile.
+    localStorage.removeItem("dg_pid");
+    localStorage.removeItem("dg_room");
     const ok = await ws.connectWaitOpen(code);
     if (!ok) {
       setIsLoading(false);
       return;
     }
-    if (savedRoom === code && savedPid) {
-      ws.send({ type: "reconnect", pid: savedPid });
-    } else {
-      ws.send({ type: 'join', name: nickname.trim() });
-    }
+    ws.send({ type: 'join', name: nickname.trim() });
     ws.send({ type: 'snapshot' });
     setJoinPending(true);
   };
@@ -201,6 +199,14 @@ const LandingPage = () => {
     const m = ws.lastMsg;
     if (!m) return;
     if (m.type === 'room_snapshot') {
+      if (!ws.pid) return;
+      const isJoined = Array.isArray(m.players) && m.players.some((p) => p?.pid === ws.pid);
+      if (!isJoined) {
+        triggerToast("Join failed. Try again.");
+        setJoinPending(false);
+        setIsLoading(false);
+        return;
+      }
       const mode = m.room?.mode || 'SINGLE';
       setJoinPending(false);
       setIsLoading(false);
@@ -210,13 +216,25 @@ const LandingPage = () => {
       if (m.code === "ROOM_NOT_FOUND") {
         triggerToast("Room not found.");
       }
+      if (m.code === "ROOM_FULL") {
+        triggerToast("Room is full.");
+      }
+      if (m.code === "KICKED") {
+        triggerToast("You were kicked from this room.");
+      }
       if (m.code === "PLAYER_NOT_FOUND") {
         localStorage.removeItem("dg_pid");
+        ws.send({ type: 'join', name: nickname.trim() });
+        ws.send({ type: 'snapshot' });
+        return;
+      }
+      if (!["ROOM_NOT_FOUND", "ROOM_FULL", "KICKED", "PLAYER_NOT_FOUND"].includes(m.code)) {
+        triggerToast(m.message || "Join failed.");
       }
       setJoinPending(false);
       setIsLoading(false);
     }
-  }, [joinPending, ws.lastMsg, navigate]);
+  }, [joinPending, ws.lastMsg, ws, nickname, navigate]);
 
   // Handle Enter key press
   const handleKeyPress = (e) => {

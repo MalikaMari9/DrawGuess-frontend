@@ -9,6 +9,7 @@ const TRANSITION_DELAY_MS = 1500;
 const TRANSITION_TIME_UP_MS = 900;
 const TRANSITION_SHOW_MS = 1300;
 const TRANSITION_OUT_MS = 700;
+const SABOTAGE_COOLDOWN_SEC = 180;
 
 const fitCanvasToWrapper = (canvas) => {
   if (!canvas) return;
@@ -87,12 +88,15 @@ const BattleGame = () => {
   const team2SabotageOnCooldown = team2CooldownLeft > 0;
   const drawTimeLeft = roundEndAt > 0 ? Math.max(0, roundEndAt - nowSec) : 0;
   const guessTimeLeft = guessEndAt > 0 ? Math.max(0, guessEndAt - nowSec) : 0;
+  const sabotageDisabledLast30 = phase === "DRAW" && roundEndAt > 0 && drawTimeLeft <= 30;
   const phaseTimeLeft = phase === "GUESS" ? guessTimeLeft : phase === "DRAW" ? drawTimeLeft : 0;
   const phaseTimeLabel = phase === "GUESS" ? "GUESS TIME" : phase === "DRAW" ? "DRAW TIME" : "TIME";
   const canGuessA = ws.status === "CONNECTED" && phase === "GUESS" && isGuesserA;
   const canGuessB = ws.status === "CONNECTED" && phase === "GUESS" && isGuesserB;
   const canDrawA = phase === "DRAW" && isDrawerA;
   const canDrawB = phase === "DRAW" && isDrawerB;
+  const team1SabotageDisabled = !canDrawA || remainingA <= 0 || team1SabotageOnCooldown || sabotageDisabledLast30;
+  const team2SabotageDisabled = !canDrawB || remainingB <= 0 || team2SabotageOnCooldown || sabotageDisabledLast30;
   const teamGuessed = snapshot.game?.team_guessed || {};
   const teamAlreadyGuessed = myTeam ? !!teamGuessed[myTeam] : false;
   // Tool states for Team 1
@@ -433,12 +437,9 @@ const BattleGame = () => {
       const canvas = m.canvas || null;
       const st = convertOpToStroke(m.op);
       if (!st) return;
-      // Avoid double-applying our own ops on our own canvas (we already rendered locally)
+      // Avoid double-applying our own ops (draw/erase/clear/sabotage are rendered locally first)
       const myPidNow = ws.pid || localStorage.getItem("dg_pid");
-      const myTeamNow = myTeam;
-      if (m.by === myPidNow && canvas && canvas === myTeamNow) {
-        return;
-      }
+      if (m.by === myPidNow) return;
       if (st.type === "clear") {
         if (canvas === "A") {
           strokes1Ref.current = [];
@@ -688,6 +689,9 @@ const BattleGame = () => {
       if (!isDrawing1) return;
 
       const { x, y } = getCanvasCoordinates(e, canvas1Ref.current);
+      const sabotageArmed = sabotageArmed1Ref.current;
+      const previewTeamId = sabotageArmed ? 2 : 1;
+      const previewCtx = previewTeamId === 1 ? ctx1Ref.current : ctx2Ref.current;
       const ctx = ctx1Ref.current;
       if (team1Mode === 'erase') {
         const eraserRadius = Math.max(6, team1Size * 1.5);
@@ -703,8 +707,8 @@ const BattleGame = () => {
             stroke.center = { x: stroke.start.x, y: stroke.start.y };
             stroke.radius = Math.sqrt(dx * dx + dy * dy);
           }
-          renderStrokes(1);
-          drawStroke(ctx, stroke);
+          renderStrokes(previewTeamId);
+          if (previewCtx) drawStroke(previewCtx, stroke);
         }
       } else if (team1Brush === 'circle') {
         ctx.beginPath();
@@ -714,8 +718,8 @@ const BattleGame = () => {
         const stroke = currentStroke1Ref.current;
         if (stroke && stroke.type === 'free') {
           stroke.points.push({ x, y });
-          renderStrokes(1);
-          drawStroke(ctx, stroke);
+          renderStrokes(previewTeamId);
+          if (previewCtx) drawStroke(previewCtx, stroke);
         }
       }
     },
@@ -746,21 +750,54 @@ const BattleGame = () => {
           const canSend = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
           const op = strokeToOp(stroke);
           const sabotageArmed = sabotageArmed1Ref.current;
+          const sabotageOpOk = !!op && (op.t === "line" || op.t === "circle");
+          const sabotageAllowedNow =
+            canSend &&
+            remainingA > 0 &&
+            !team1SabotageOnCooldown &&
+            !sabotageDisabledLast30 &&
+            team1Mode === "draw" &&
+            sabotageOpOk;
           currentStroke1Ref.current = null;
           if (canSend && op) {
-            if (sabotageArmed) {
+            if (sabotageArmed && sabotageAllowedNow) {
+              // Optimistic render on opponent canvas, then send sabotage to backend.
+              strokes2Ref.current.push(stroke);
+              renderStrokes(2);
               ws.send({ type: "sabotage", target: "B", op });
+              setSabotageCooldown((prev) => ({
+                ...prev,
+                A: Math.max(Number(prev.A || 0), Math.floor(Date.now() / 1000) + SABOTAGE_COOLDOWN_SEC),
+              }));
               sabotageArmed1Ref.current = false;
-              renderStrokes(1);
             } else {
+              if (sabotageArmed) {
+                sabotageArmed1Ref.current = false;
+                if (team1SabotageOnCooldown) {
+                  alert(`Sabotage on cooldown (${team1CooldownLeft}s).`);
+                } else if (sabotageDisabledLast30) {
+                  alert('Sabotage is disabled in the last 30 seconds.');
+                } else if (remainingA <= 0) {
+                  alert('Not enough strokes for sabotage.');
+                } else {
+                  alert('Sabotage only supports line or circle.');
+                }
+                renderStrokes(1);
+                return;
+              }
               strokes1Ref.current.push(stroke);
               renderStrokes(1);
               ws.send({ type: "draw_op", canvas: "A", op });
             }
           } else {
             // Keep local-only preview if send is not possible.
-            strokes1Ref.current.push(stroke);
-            renderStrokes(1);
+            if (sabotageArmed) {
+              sabotageArmed1Ref.current = false;
+              renderStrokes(1);
+            } else {
+              strokes1Ref.current.push(stroke);
+              renderStrokes(1);
+            }
           }
         }
       }
@@ -834,6 +871,9 @@ const BattleGame = () => {
       if (!isDrawing2) return;
 
       const { x, y } = getCanvasCoordinates(e, canvas2Ref.current);
+      const sabotageArmed = sabotageArmed2Ref.current;
+      const previewTeamId = sabotageArmed ? 1 : 2;
+      const previewCtx = previewTeamId === 1 ? ctx1Ref.current : ctx2Ref.current;
       const ctx = ctx2Ref.current;
       if (team2Mode === 'erase') {
         const eraserRadius = Math.max(6, team2Size * 1.5);
@@ -849,8 +889,8 @@ const BattleGame = () => {
             stroke.center = { x: stroke.start.x, y: stroke.start.y };
             stroke.radius = Math.sqrt(dx * dx + dy * dy);
           }
-          renderStrokes(2);
-          drawStroke(ctx, stroke);
+          renderStrokes(previewTeamId);
+          if (previewCtx) drawStroke(previewCtx, stroke);
         }
       } else if (team2Brush === 'circle') {
         ctx.beginPath();
@@ -860,8 +900,8 @@ const BattleGame = () => {
         const stroke = currentStroke2Ref.current;
         if (stroke && stroke.type === 'free') {
           stroke.points.push({ x, y });
-          renderStrokes(2);
-          drawStroke(ctx, stroke);
+          renderStrokes(previewTeamId);
+          if (previewCtx) drawStroke(previewCtx, stroke);
         }
       }
     },
@@ -892,21 +932,54 @@ const BattleGame = () => {
           const canSend = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
           const op = strokeToOp(stroke);
           const sabotageArmed = sabotageArmed2Ref.current;
+          const sabotageOpOk = !!op && (op.t === "line" || op.t === "circle");
+          const sabotageAllowedNow =
+            canSend &&
+            remainingB > 0 &&
+            !team2SabotageOnCooldown &&
+            !sabotageDisabledLast30 &&
+            team2Mode === "draw" &&
+            sabotageOpOk;
           currentStroke2Ref.current = null;
           if (canSend && op) {
-            if (sabotageArmed) {
+            if (sabotageArmed && sabotageAllowedNow) {
+              // Optimistic render on opponent canvas, then send sabotage to backend.
+              strokes1Ref.current.push(stroke);
+              renderStrokes(1);
               ws.send({ type: "sabotage", target: "A", op });
+              setSabotageCooldown((prev) => ({
+                ...prev,
+                B: Math.max(Number(prev.B || 0), Math.floor(Date.now() / 1000) + SABOTAGE_COOLDOWN_SEC),
+              }));
               sabotageArmed2Ref.current = false;
-              renderStrokes(2);
             } else {
+              if (sabotageArmed) {
+                sabotageArmed2Ref.current = false;
+                if (team2SabotageOnCooldown) {
+                  alert(`Sabotage on cooldown (${team2CooldownLeft}s).`);
+                } else if (sabotageDisabledLast30) {
+                  alert('Sabotage is disabled in the last 30 seconds.');
+                } else if (remainingB <= 0) {
+                  alert('Not enough strokes for sabotage.');
+                } else {
+                  alert('Sabotage only supports line or circle.');
+                }
+                renderStrokes(2);
+                return;
+              }
               strokes2Ref.current.push(stroke);
               renderStrokes(2);
               ws.send({ type: "draw_op", canvas: "B", op });
             }
           } else {
             // Keep local-only preview if send is not possible.
-            strokes2Ref.current.push(stroke);
-            renderStrokes(2);
+            if (sabotageArmed) {
+              sabotageArmed2Ref.current = false;
+              renderStrokes(2);
+            } else {
+              strokes2Ref.current.push(stroke);
+              renderStrokes(2);
+            }
           }
         }
       }
@@ -1056,12 +1129,20 @@ const BattleGame = () => {
   // Sabotage function for Team 1
   const handleSabotageTeam1 = () => {
     if (!canDrawA) return;
+    if (sabotageDisabledLast30) {
+      alert('Sabotage is disabled in the last 30 seconds.');
+      return;
+    }
     if (remainingA <= 0) {
       alert('Not enough strokes for sabotage.');
       return;
     }
     if (team1SabotageOnCooldown) {
       alert(`Sabotage on cooldown (${team1CooldownLeft}s).`);
+      return;
+    }
+    if (team1Mode !== "draw" || (team1Brush !== "line" && team1Brush !== "circle")) {
+      alert('Sabotage only supports line or circle.');
       return;
     }
     sabotageArmed1Ref.current = true;
@@ -1090,12 +1171,20 @@ const BattleGame = () => {
   // Sabotage function for Team 2
   const handleSabotageTeam2 = () => {
     if (!canDrawB) return;
+    if (sabotageDisabledLast30) {
+      alert('Sabotage is disabled in the last 30 seconds.');
+      return;
+    }
     if (remainingB <= 0) {
       alert('Not enough strokes for sabotage.');
       return;
     }
     if (team2SabotageOnCooldown) {
       alert(`Sabotage on cooldown (${team2CooldownLeft}s).`);
+      return;
+    }
+    if (team2Mode !== "draw" || (team2Brush !== "line" && team2Brush !== "circle")) {
+      alert('Sabotage only supports line or circle.');
       return;
     }
     sabotageArmed2Ref.current = true;
@@ -1279,8 +1368,9 @@ const BattleGame = () => {
               {/* Sabotage Button */}
                 <div
                   id="sab1"
-                  className={`sabotage-btn ${team1SabotageOnCooldown ? 'used' : ''}`}
+                  className={`sabotage-btn ${team1SabotageDisabled ? 'used' : ''}`}
                   onClick={handleSabotageTeam1}
+                  aria-disabled={team1SabotageDisabled}
                 >
                 🔥
               </div>
@@ -1454,8 +1544,9 @@ const BattleGame = () => {
               {/* Sabotage Button */}
                 <div
                   id="sab2"
-                  className={`sabotage-btn ${team2SabotageOnCooldown ? 'used' : ''}`}
+                  className={`sabotage-btn ${team2SabotageDisabled ? 'used' : ''}`}
                   onClick={handleSabotageTeam2}
+                  aria-disabled={team2SabotageDisabled}
                 >
                 🔥
               </div>

@@ -10,6 +10,7 @@ const TRANSITION_DELAY_MS = 1500;
 const TRANSITION_TIME_UP_MS = 900;
 const TRANSITION_SHOW_MS = 1300;
 const TRANSITION_OUT_MS = 700;
+const SABOTAGE_COOLDOWN_SEC = 180;
 
 const fitCanvasToWrapper = (canvas) => {
   if (!canvas) return;
@@ -694,6 +695,10 @@ const BattleGame = () => {
       const target = "B";
       applyOpToCanvas(op, target);
       ws.send({ type: "sabotage", target, op });
+      setSabotageCooldown((prev) => ({
+        ...prev,
+        A: Math.max(Number(prev.A || 0), Math.floor(Date.now() / 1000) + SABOTAGE_COOLDOWN_SEC),
+      }));
       setSabotageArmed(false);
       return;
     }
@@ -793,6 +798,10 @@ const BattleGame = () => {
       const target = "A";
       applyOpToCanvas(op, target);
       ws.send({ type: "sabotage", target, op });
+      setSabotageCooldown((prev) => ({
+        ...prev,
+        B: Math.max(Number(prev.B || 0), Math.floor(Date.now() / 1000) + SABOTAGE_COOLDOWN_SEC),
+      }));
       setSabotageArmed(false);
       return;
     }
