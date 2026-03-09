@@ -41,6 +41,15 @@ const BattleLobby = () => {
     }
   }, [ws.lastMsg]);
 
+  useEffect(() => {
+    if (ws.status !== "CONNECTED") return;
+    ws.send({ type: "snapshot" });
+    const id = setInterval(() => {
+      ws.send({ type: "snapshot" });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [ws.status, ws.roomCode, ws.send]);
+
   const handleBack = () => {
     navigate("/select-mode");
   };

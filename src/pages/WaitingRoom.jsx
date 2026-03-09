@@ -4,6 +4,15 @@ import { useNavigate } from "react-router-dom";
 import "../styles/WaitingRoom.css";
 import { useRoomWSContext } from "../ws/RoomWSContext";
 
+const traceFlow = (event, payload = {}) => {
+  if (typeof window !== "undefined" && window.localStorage.getItem("dg_flow_trace") === "0") return;
+  console.log("[FLOW][WaitingRoom]", {
+    event,
+    route: typeof window !== "undefined" ? window.location.pathname : "",
+    ...payload,
+  });
+};
+
 const WaitingRoom = () => {
   const { ws } = useRoomWSContext();
   const navigate = useNavigate();
@@ -62,7 +71,33 @@ const WaitingRoom = () => {
 
   useEffect(() => {
     if (room.state === "IN_GAME") {
+      traceFlow("navigate", {
+        source: "snapshot_state",
+        roomState: room.state,
+        mode,
+        to: mode === "VS" ? "/battle-game" : "/single-game",
+      });
       navigate(mode === "VS" ? "/battle-game" : "/single-game");
+      return;
+    }
+    if (room.state === "WAITING") {
+      traceFlow("navigate", {
+        source: "snapshot_state",
+        roomState: room.state,
+        mode,
+        to: mode === "VS" ? "/battle-lobby" : "/single-lobby",
+      });
+      navigate(mode === "VS" ? "/battle-lobby" : "/single-lobby");
+      return;
+    }
+    if (room.state === "ROLE_PICK" && mode === "VS") {
+      traceFlow("navigate", {
+        source: "snapshot_state",
+        roomState: room.state,
+        mode,
+        to: "/role-pick",
+      });
+      navigate("/role-pick");
     }
   }, [room.state, navigate, mode]);
 
@@ -78,6 +113,13 @@ const WaitingRoom = () => {
       return;
     }
     if (startSentRef.current) return;
+    traceFlow("auto_start_game_send", {
+      mode,
+      roomState: room.state,
+      countdownLeft,
+      configReady,
+      gmPid: room.gm_pid || null,
+    });
     startSentRef.current = true;
     ws.send({ type: "start_game" });
   }, [room.state, isGM, configReady, countdownLeft, ws]);
@@ -85,8 +127,36 @@ const WaitingRoom = () => {
   useEffect(() => {
     const m = ws.lastMsg;
     if (!m) return;
-    if (m.type === "room_state_changed" && m.state === "IN_GAME") {
-      navigate(mode === "VS" ? "/battle-game" : "/single-game");
+    if (m.type === "room_state_changed") {
+      if (m.state === "IN_GAME") {
+        traceFlow("navigate", {
+          source: "room_state_changed",
+          roomState: m.state,
+          mode,
+          to: mode === "VS" ? "/battle-game" : "/single-game",
+        });
+        navigate(mode === "VS" ? "/battle-game" : "/single-game");
+        return;
+      }
+      if (m.state === "WAITING") {
+        traceFlow("navigate", {
+          source: "room_state_changed",
+          roomState: m.state,
+          mode,
+          to: mode === "VS" ? "/battle-lobby" : "/single-lobby",
+        });
+        navigate(mode === "VS" ? "/battle-lobby" : "/single-lobby");
+        return;
+      }
+      if (m.state === "ROLE_PICK" && mode === "VS") {
+        traceFlow("navigate", {
+          source: "room_state_changed",
+          roomState: m.state,
+          mode,
+          to: "/role-pick",
+        });
+        navigate("/role-pick");
+      }
     }
   }, [ws.lastMsg, navigate, mode]);
 

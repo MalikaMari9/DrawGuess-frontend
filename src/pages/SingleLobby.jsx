@@ -3,6 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import "../styles/SingleLobby.css";
 import { useRoomWSContext } from "../ws/RoomWSContext";
 
+const traceFlow = (event, payload = {}) => {
+  if (typeof window !== "undefined" && window.localStorage.getItem("dg_flow_trace") === "0") return;
+  console.log("[FLOW][SingleLobby]", {
+    event,
+    route: typeof window !== "undefined" ? window.location.pathname : "",
+    ...payload,
+  });
+};
+
 const SingleLobby = () => {
   const { ws } = useRoomWSContext();
   const navigate = useNavigate();
@@ -14,7 +23,8 @@ const SingleLobby = () => {
   const disconnectedPlayers = players.filter((p) => p.connected === false);
   const playerCount = connectedPlayers.length;
   const maxPlayers = room.cap || 0;
-  const canStart = playerCount >= 3;
+  const hasMinPlayers = playerCount >= 3;
+  const canStart = hasMinPlayers && room.state === "WAITING";
   const [rolePickSent, setRolePickSent] = useState(false);
   const [sendError, setSendError] = useState("");
 
@@ -26,6 +36,11 @@ const SingleLobby = () => {
   useEffect(() => {
     if (rolePickSent) return;
     if (room.state === "ROLE_PICK") {
+      traceFlow("navigate", {
+        source: "snapshot_state",
+        roomState: room.state,
+        to: "/role-pick",
+      });
       setRolePickSent(true);
       navigate("/role-pick");
     }
@@ -37,6 +52,15 @@ const SingleLobby = () => {
       setSendError(m.message || "Request failed");
     }
   }, [ws.lastMsg]);
+
+  useEffect(() => {
+    if (ws.status !== "CONNECTED") return;
+    ws.send({ type: "snapshot" });
+    const id = setInterval(() => {
+      ws.send({ type: "snapshot" });
+    }, 2000);
+    return () => clearInterval(id);
+  }, [ws.status, ws.roomCode, ws.send]);
 
   return (
     <div className="lobby-body">
@@ -141,15 +165,26 @@ const SingleLobby = () => {
         <div className="status-bar">
           <div className="pulse-dot"></div>
           <span>
-            {canStart
-              ? "Ready to start. Anyone can begin role pick."
-              : "Need at least 3 players to start."}
+            {!hasMinPlayers
+              ? "Need at least 3 players to start."
+              : room.state !== "WAITING"
+                ? `Waiting for room reset... (state: ${room.state || "unknown"})`
+                : "Ready to start. Anyone can begin role pick."}
           </span>
         </div>
 
         <button
           className="start-btn"
           onClick={() => {
+            if (room.state !== "WAITING") {
+              setSendError(`Cannot start yet. Current state: ${room.state || "unknown"}`);
+              return;
+            }
+            traceFlow("start_role_pick_send", {
+              roomState: room.state || null,
+              playerCount,
+              hasMinPlayers,
+            });
             const ok = ws.send({ type: "start_role_pick" });
             if (!ok) setSendError("WebSocket not connected");
           }}

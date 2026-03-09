@@ -1,19 +1,79 @@
-
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRoomWS } from "./useRoomWS";
+import { buildWsCandidates, discoverWorkingWsBase, setCachedWsBase } from "./discovery";
 
 const RoomWSContext = createContext(null);
 
 export function RoomWSProvider({ children }) {
-  const WS_BASE = useMemo(
-    () => import.meta.env.VITE_WS_BASE_URL?.trim() || `ws://${window.location.hostname}:8000`,
-    []
-  );
+  const envWsBase = useMemo(() => import.meta.env.VITE_WS_BASE_URL?.trim() || "", []);
+  const initialWsBase = useMemo(() => {
+    const fallbackProto = window.location.protocol === "https:" ? "wss" : "ws";
+    const fallbackHost = window.location.hostname || "127.0.0.1";
+    const fallbackBase = `${fallbackProto}://${fallbackHost}:8000`;
+    return buildWsCandidates({ preferredBase: envWsBase, envBase: envWsBase })[0] || fallbackBase;
+  }, [envWsBase]);
+  const [wsBase, setWsBase] = useState(initialWsBase);
+  const wsRaw = useRoomWS(wsBase);
 
-  const ws = useRoomWS(WS_BASE);
   const [nickname, setNickname] = useState(localStorage.getItem("dg_nickname") || "");
   const didAutoReconnect = useRef(false);
   const reconnectingRef = useRef(false);
+
+  const ensureWsBase = useCallback(
+    async (forceProbe = false) => {
+      const preferredCandidates = buildWsCandidates({ preferredBase: "", envBase: envWsBase });
+      const preferred = preferredCandidates[0] || wsBase || "";
+
+      if (!forceProbe) {
+        if (preferred && preferred !== wsBase) setWsBase(preferred);
+        return preferred;
+      }
+
+      const discovered = await discoverWorkingWsBase({
+        preferredBase: preferred,
+        envBase: envWsBase,
+      });
+      const chosen = discovered || preferred;
+      if (chosen && chosen !== wsBase) setWsBase(chosen);
+      if (chosen) setCachedWsBase(chosen);
+      return chosen;
+    },
+    [envWsBase, wsBase]
+  );
+
+  const connectWaitOpen = useCallback(
+    async (room, timeoutMs = 3000) => {
+      const preferredBase = await ensureWsBase(false);
+      let ok = await wsRaw.connectWaitOpen(room, timeoutMs, preferredBase);
+      if (ok) {
+        setCachedWsBase(preferredBase);
+        return true;
+      }
+
+      const discovered = await ensureWsBase(true);
+      if (!discovered || discovered === preferredBase) return false;
+      ok = await wsRaw.connectWaitOpen(room, timeoutMs, discovered);
+      if (ok) setCachedWsBase(discovered);
+      return ok;
+    },
+    [ensureWsBase, wsRaw]
+  );
+
+  const connect = useCallback(
+    (room) => {
+      void connectWaitOpen(room, 3000);
+    },
+    [connectWaitOpen]
+  );
+
+  const ws = useMemo(
+    () => ({
+      ...wsRaw,
+      connect,
+      connectWaitOpen,
+    }),
+    [wsRaw, connect, connectWaitOpen]
+  );
 
   // Auto-reconnect on refresh if we have a saved session
   useEffect(() => {
@@ -88,57 +148,79 @@ export function RoomWSProvider({ children }) {
     if (name) localStorage.setItem("dg_nickname", name);
   }, []);
 
-  const createRoom = useCallback(
-    (mode, cap = 8, timeoutMs = 4000) =>
-      new Promise((resolve) => {
-        const base = WS_BASE.replace(/\/+$/, "");
-        const url = `${base}/ws-create`;
-        const wsCreate = new WebSocket(url);
-        let done = false;
-        const timer = setTimeout(() => {
-          if (done) return;
-          done = true;
-          try { wsCreate.close(); } catch {}
-          resolve(null);
-        }, timeoutMs);
+  const createRoomAtBase = useCallback((base, mode, cap, timeoutMs) => {
+    if (!base) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const cleanBase = `${base}`.replace(/\/+$/, "");
+      const url = `${cleanBase}/ws-create`;
+      let wsCreate = null;
+      let done = false;
 
-        wsCreate.onopen = () => {
-          wsCreate.send(JSON.stringify({ type: "create_room", mode, cap }));
-        };
-        wsCreate.onmessage = (e) => {
-          if (done) return;
-          let msg;
-          try {
-            msg = JSON.parse(e.data);
-          } catch {
-            return;
-          }
-          if (msg?.type === "room_created" && msg.room_code) {
-            done = true;
-            clearTimeout(timer);
-            try { wsCreate.close(); } catch {}
-            resolve(msg.room_code);
-          } else if (msg?.type === "error") {
-            done = true;
-            clearTimeout(timer);
-            try { wsCreate.close(); } catch {}
-            resolve(null);
-          }
-        };
-        wsCreate.onerror = () => {
-          if (done) return;
-          done = true;
-          clearTimeout(timer);
-          resolve(null);
-        };
-        wsCreate.onclose = () => {
-          if (done) return;
-          done = true;
-          clearTimeout(timer);
-          resolve(null);
-        };
-      }),
-    [WS_BASE]
+      const finish = (code) => {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        try {
+          if (wsCreate) wsCreate.close();
+        } catch {
+          // Ignore close errors during ws-create cleanup.
+        }
+        resolve(code || null);
+      };
+
+      let timer = null;
+      try {
+        wsCreate = new WebSocket(url);
+      } catch {
+        finish(null);
+        return;
+      }
+
+      timer = setTimeout(() => finish(null), timeoutMs);
+
+      wsCreate.onopen = () => {
+        wsCreate.send(JSON.stringify({ type: "create_room", mode, cap }));
+      };
+      wsCreate.onmessage = (e) => {
+        if (done) return;
+        let msg = null;
+        try {
+          msg = JSON.parse(e.data);
+        } catch {
+          // Ignore malformed ws-create payloads.
+          return;
+        }
+        if (msg?.type === "room_created" && msg.room_code) {
+          finish(msg.room_code);
+          return;
+        }
+        if (msg?.type === "error") finish(null);
+      };
+      wsCreate.onerror = () => finish(null);
+      wsCreate.onclose = () => finish(null);
+    });
+  }, []);
+
+  const createRoom = useCallback(
+    async (mode, cap = 8, timeoutMs = 4000) => {
+      const preferredBase = await ensureWsBase(false);
+      let roomCode = await createRoomAtBase(preferredBase, mode, cap, timeoutMs);
+      if (roomCode) {
+        if (preferredBase && preferredBase !== wsBase) setWsBase(preferredBase);
+        setCachedWsBase(preferredBase);
+        return roomCode;
+      }
+
+      const discovered = await ensureWsBase(true);
+      if (!discovered || discovered === preferredBase) return null;
+      roomCode = await createRoomAtBase(discovered, mode, cap, timeoutMs);
+      if (roomCode) {
+        if (discovered !== wsBase) setWsBase(discovered);
+        setCachedWsBase(discovered);
+      }
+      return roomCode;
+    },
+    [createRoomAtBase, ensureWsBase, wsBase]
   );
 
   const value = useMemo(

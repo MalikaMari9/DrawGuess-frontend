@@ -1,5 +1,5 @@
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 function now() {
   return new Date().toISOString().slice(11, 23);
@@ -15,8 +15,42 @@ function normalizeRoomCode(code, trim = false) {
   return cleaned.toUpperCase();
 }
 
+function isFlowTraceEnabled() {
+  if (typeof window === "undefined") return false;
+  const raw = window.localStorage.getItem("dg_flow_trace");
+  return raw !== "0";
+}
+
+function isTraceMessageType(type) {
+  return (
+    type === "snapshot" ||
+    type === "heartbeat" ||
+    type === "start_role_pick" ||
+    type === "start_game" ||
+    type === "set_round_config" ||
+    type === "set_vs_config" ||
+    type === "vote_next" ||
+    type === "join" ||
+    type === "reconnect" ||
+    type === "create_room" ||
+    type === "room_snapshot" ||
+    type === "room_state_changed" ||
+    type === "phase_changed" ||
+    type === "roles_assigned" ||
+    type === "vote_progress" ||
+    type === "vote_resolved" ||
+    type === "game_end" ||
+    type === "error"
+  );
+}
+
+const MSG_BUFFER_LIMIT = 1000;
+
 export function useRoomWS(baseUrl) {
   const wsRef = useRef(null);
+  const baseUrlRef = useRef(baseUrl);
+  const msgSeqRef = useRef(0);
+  const msgBufferRef = useRef([]);
 
   const [status, setStatus] = useState("DISCONNECTED"); // DISCONNECTED | CONNECTING | CONNECTED | ERROR
   const [roomCode, setRoomCode] = useState("");
@@ -25,6 +59,11 @@ export function useRoomWS(baseUrl) {
   const [snapshot, setSnapshot] = useState(null);
   const [lastCloseCode, setLastCloseCode] = useState(null);
   const [lastMsg, setLastMsg] = useState(null); // <- NEW (parsed last incoming)
+  const [msgSeq, setMsgSeq] = useState(0);
+
+  useEffect(() => {
+    baseUrlRef.current = baseUrl;
+  }, [baseUrl]);
 
   const pushLog = useCallback((dir, obj) => {
     setLog((prev) => [
@@ -38,14 +77,16 @@ export function useRoomWS(baseUrl) {
     if (ws) {
       try {
         ws.close();
-      } catch {}
+      } catch {
+        // Ignore close failures.
+      }
       wsRef.current = null;
     }
     setPid("");
   }, []);
 
   const connect = useCallback(
-    (code) => {
+    (code, baseOverride = "") => {
       const cleanCode = normalizeRoomCode(code, true);
       if (!cleanCode) {
         pushLog("ERR", "Room code is empty");
@@ -54,14 +95,25 @@ export function useRoomWS(baseUrl) {
 
       // close old
       if (wsRef.current) {
-        try { wsRef.current.close(); } catch {}
+        try {
+          wsRef.current.close();
+        } catch {
+          // Ignore close failures during reconnect.
+        }
         wsRef.current = null;
       }
 
       setRoomCode(cleanCode);
       setStatus("CONNECTING");
+      // Prevent rendering stale room/player data while switching rooms.
+      setSnapshot(null);
+      setLastMsg(null);
+      msgSeqRef.current = 0;
+      msgBufferRef.current = [];
+      setMsgSeq(0);
 
-      const url = `${baseUrl.replace(/\/+$/, "")}/ws/${cleanCode}`;
+      const resolvedBase = `${baseOverride || baseUrlRef.current || baseUrl}`.replace(/\/+$/, "");
+      const url = `${resolvedBase}/ws/${cleanCode}`;
       pushLog("SYS", `Connecting: ${url}`);
 
       const myWs = new WebSocket(url);
@@ -99,8 +151,28 @@ export function useRoomWS(baseUrl) {
           return;
         }
 
+        const seq = msgSeqRef.current + 1;
+        msgSeqRef.current = seq;
+        msgBufferRef.current.push({ seq, msg });
+        if (msgBufferRef.current.length > MSG_BUFFER_LIMIT) {
+          msgBufferRef.current = msgBufferRef.current.slice(-MSG_BUFFER_LIMIT);
+        }
+
+        setMsgSeq(seq);
         setLastMsg(msg);
         pushLog("IN", msg);
+        if (isFlowTraceEnabled() && isTraceMessageType(msg?.type)) {
+          const roomState = msg?.room?.state ?? msg?.state ?? null;
+          const phase = msg?.game?.phase ?? msg?.phase ?? null;
+          console.log("[FLOW][WS][IN]", {
+            seq,
+            room: cleanCode,
+            type: msg?.type,
+            roomState,
+            phase,
+            voteOutcome: msg?.outcome ?? msg?.game?.vote_outcome ?? null,
+          });
+        }
 
         if (msg.type === "hello" && msg.pid) setPid(msg.pid);
         if (msg.type === "room_snapshot") setSnapshot(msg);
@@ -111,8 +183,8 @@ export function useRoomWS(baseUrl) {
 
   // NEW: connect + wait until OPEN (no more "click twice")
   const connectWaitOpen = useCallback(
-    async (code, timeoutMs = 3000) => {
-      connect(code);
+    async (code, timeoutMs = 3000, baseOverride = "") => {
+      connect(code, baseOverride);
 
       const start = Date.now();
       while (Date.now() - start < timeoutMs) {
@@ -132,12 +204,42 @@ export function useRoomWS(baseUrl) {
         pushLog("ERR", "Cannot send: websocket not open");
         return false;
       }
+      if (isFlowTraceEnabled() && isTraceMessageType(obj?.type)) {
+        console.log("[FLOW][WS][OUT]", {
+          room: roomCode || "(pending)",
+          type: obj?.type,
+          payload: obj,
+        });
+      }
       pushLog("OUT", obj);
       ws.send(JSON.stringify(obj));
       return true;
     },
-    [pushLog]
+    [pushLog, roomCode]
   );
+
+  const getMessagesSince = useCallback((afterSeq = 0) => {
+    const target = Number(afterSeq) || 0;
+    const queue = msgBufferRef.current;
+    if (!queue.length) return [];
+    let idx = -1;
+    for (let i = 0; i < queue.length; i += 1) {
+      if (queue[i].seq > target) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return [];
+    return queue.slice(idx);
+  }, []);
+
+  const getMessageWindow = useCallback(() => {
+    const queue = msgBufferRef.current;
+    return {
+      firstSeq: queue[0]?.seq || 0,
+      lastSeq: msgSeqRef.current || 0,
+    };
+  }, []);
 
   const api = useMemo(
     () => ({
@@ -148,6 +250,9 @@ export function useRoomWS(baseUrl) {
       log,
       snapshot,
       lastMsg,
+      msgSeq,
+      getMessagesSince,
+      getMessageWindow,
       lastCloseCode,
       connect,
       connectWaitOpen,  // <- NEW
@@ -155,7 +260,22 @@ export function useRoomWS(baseUrl) {
       send,
       clearLog: () => setLog([]),
     }),
-    [status, roomCode, pid, log, snapshot, lastMsg, lastCloseCode, connect, connectWaitOpen, disconnect, send]
+    [
+      status,
+      roomCode,
+      pid,
+      log,
+      snapshot,
+      lastMsg,
+      msgSeq,
+      getMessagesSince,
+      getMessageWindow,
+      lastCloseCode,
+      connect,
+      connectWaitOpen,
+      disconnect,
+      send,
+    ]
   );
 
   return api;

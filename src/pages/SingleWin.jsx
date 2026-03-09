@@ -148,10 +148,6 @@ const SingleWin = () => {
   }, []);
 
   // ========== HANDLERS ==========
-  const playAgain = () => {
-    navigate('/single-lobby'); // or navigate to game creation
-  };
-
   const goToMainMenu = () => {
     navigate('/');
   };
@@ -183,9 +179,6 @@ const SingleWin = () => {
           </div>
 
           <div className="actions">
-            <button className="btn btn-primary" onClick={playAgain}>
-              Play Again
-            </button>
             <button className="btn" onClick={goToMainMenu}>
               Main Menu
             </button>

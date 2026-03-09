@@ -122,15 +122,19 @@ const SingleGame = () => {
   const playersByPidRef = useRef({});
   const roundEndHandledKeyRef = useRef("");
   const routedToWinRef = useRef(false);
-  const rolePickHandledRef = useRef(false);
+  const lastSnapshotReqAtRef = useRef(0);
+  const phaseZeroSnapshotRef = useRef(false);
+  const lastProcessedMsgSeqRef = useRef(0);
+  const waitingHandledRef = useRef(false);
+  const lastTraceKeyRef = useRef("");
 
   // ===== Shared canvas ops (from backend) =====
   const opsRef = useRef([]);         // canonical ops (1024x768) from server
   const [opsVersion, setOpsVersion] = useState(0); // bump to trigger re-render/rebuild
   const bumpOps = useCallback(() => setOpsVersion((v) => v + 1), []);
 
-  // ===== WebSocket snapshot state (for countdown + secret display) =====
-  const [snapshot, setSnapshot] = useState(ws.snapshot || null);
+  // ===== WebSocket snapshot state (authoritative server source) =====
+  const snapshot = ws.snapshot || null;
 
   const roomCode = ws.roomCode || getStored("dg_room");
   const myPid = ws.pid || getStoredPid() || "";
@@ -143,7 +147,13 @@ const SingleGame = () => {
   const roundConfig = snapshot?.round_config || {};
   const gameSnap = snapshot?.game || {};
   const strokeLimit = Number(gameSnap?.stroke_limit || roundConfig?.stroke_limit || 0);
-  const strokesLeft = Number(gameSnap?.strokes_left || 0);
+  const snapshotStrokesLeft = Number(gameSnap?.strokes_left || 0);
+  const [serverStrokesLeft, setServerStrokesLeft] = useState(snapshotStrokesLeft);
+  const [hasVoted, setHasVoted] = useState(false);
+  const [voteStats, setVoteStats] = useState(null);
+  const [voteRemaining, setVoteRemaining] = useState(null);
+  const [voteError, setVoteError] = useState(null);
+  const strokesLeft = Math.max(0, Number.isFinite(serverStrokesLeft) ? serverStrokesLeft : snapshotStrokesLeft);
   const strokesUsed = strokeLimit ? Math.max(0, strokeLimit - strokesLeft) : 0;
   const roomRoundNo = Number(snapshot?.room?.round_no || 0);
   const isInRound = snapshot?.room?.state === "IN_GAME";
@@ -153,10 +163,26 @@ const SingleGame = () => {
   const drawerPid = String(gameSnap?.drawer_pid || snapshot?.roles?.drawer || "");
   const isGmByPid = Boolean(myPid) && gmPid === myPid;
   const isDrawerByPid = Boolean(myPid) && drawerPid === myPid;
+  const isRoleGm = backendRole === "gm" || isGmByPid;
+  const isRoleDrawer = backendRole === "drawer" || isDrawerByPid;
+  const isRoleGuesser = backendRole === "guesser";
   // Strict permission source: backend per-player role first.
   // Fallback to pid mapping only for drawer (game.drawer_pid is authoritative in SINGLE).
-  const canDraw = isInRound && phase === "DRAW" && (backendRole === "drawer" || isDrawerByPid);
-  const canGuess = isInRound && backendRole === "guesser";
+  const canDraw = isInRound && phase === "DRAW" && isRoleDrawer;
+  const canGuess = isInRound && isRoleGuesser;
+  const votesNext = useMemo(() => {
+    const votes = gameSnap?.votes_next;
+    return votes && typeof votes === "object" ? votes : {};
+  }, [gameSnap?.votes_next]);
+  const eligibleCount = useMemo(
+    () => (Array.isArray(snapshot?.players) ? snapshot.players.filter((p) => p?.connected !== false).length : 0),
+    [snapshot?.players]
+  );
+  const votedCount = useMemo(() => Object.keys(votesNext).length, [votesNext]);
+  const yesCount = useMemo(() => Object.values(votesNext).filter((v) => v === "yes").length, [votesNext]);
+  const effectiveEligible = voteStats?.eligible ?? eligibleCount;
+  const effectiveVoted = voteStats?.voted_count ?? votedCount;
+  const effectiveYes = voteStats?.yes_count ?? yesCount;
   const roundEndWinnerPid = String(gameSnap?.winner_pid || "");
   const roundEndWinnerName = useMemo(() => {
     if (!roundEndWinnerPid) return "";
@@ -173,7 +199,7 @@ const SingleGame = () => {
         id: p.pid,
         name: p.name || "Unknown",
         avatar: String(p.name || "?")[0]?.toUpperCase() || "?",
-        score: Number(p.score || 0),
+        score: Number(p.points ?? p.score ?? 0),
         isHost: p.pid === gmPid,
         color: p.pid === myPid ? 'var(--accent)' : undefined,
       }))
@@ -184,7 +210,7 @@ const SingleGame = () => {
     return me ? me.score : 0;
   }, [livePlayers, myPid]);
   const secretWord = String(roundConfig?.secret_word || "");
-  const canSeeSecret = isGmByPid || isDrawerByPid;
+  const canSeeSecret = isRoleGm || isRoleDrawer;
 
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   useEffect(() => {
@@ -201,20 +227,47 @@ const SingleGame = () => {
   const serverTimeLeft =
     gameEndAt ? Math.max(0, Math.floor(gameEndAt - nowSec)) : 0;
   const hasServerTimer = Boolean(gameStartedAt && timeLimitSec);
+  useEffect(() => {
+    setServerStrokesLeft(snapshotStrokesLeft);
+  }, [snapshotStrokesLeft]);
+  const requestSnapshot = useCallback((minIntervalMs = 0) => {
+    if (ws.status !== "CONNECTED") return;
+    const now = Date.now();
+    if (minIntervalMs > 0 && now - lastSnapshotReqAtRef.current < minIntervalMs) return;
+    lastSnapshotReqAtRef.current = now;
+    ws.send({ type: "snapshot" });
+  }, [ws.status, ws.send]);
   const goToSingleWin = useCallback((payload) => {
     if (routedToWinRef.current) return;
     routedToWinRef.current = true;
     navigate('/single-win', { state: payload });
   }, [navigate]);
-  const handoffToRolePick = useCallback(() => {
-    navigate('/role-pick');
-  }, [navigate]);
+  const traceFlow = useCallback((event, extra = {}) => {
+    if (typeof window !== "undefined" && window.localStorage.getItem("dg_flow_trace") === "0") return;
+    console.log("[FLOW][SingleGame]", {
+      event,
+      route: typeof window !== "undefined" ? window.location.pathname : "",
+      roomCode,
+      myPid,
+      snapshotState: snapshot?.room?.state || null,
+      snapshotPhase: snapshot?.game?.phase || null,
+      ...extra,
+    });
+  }, [roomCode, myPid, snapshot?.room?.state, snapshot?.game?.phase]);
 
   useEffect(() => {
-    if (ws.snapshot) {
-      setSnapshot(ws.snapshot);
-    }
-  }, [ws.snapshot]);
+    if (!snapshot) return;
+    const key = `${snapshot?.room?.state || ""}:${snapshot?.game?.phase || ""}:${snapshot?.game?.vote_outcome || ""}:${snapshot?.room?.round_no || 0}`;
+    if (lastTraceKeyRef.current === key) return;
+    lastTraceKeyRef.current = key;
+    traceFlow("snapshot_transition", {
+      roomState: snapshot?.room?.state || null,
+      phase: snapshot?.game?.phase || null,
+      voteOutcome: snapshot?.game?.vote_outcome || null,
+      roundNo: snapshot?.room?.round_no || 0,
+      serverTs: snapshot?.server_ts || 0,
+    });
+  }, [snapshot, traceFlow]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -301,7 +354,7 @@ const SingleGame = () => {
         if (reason === "VOTE_NO") {
           const connectedPlayers = players.filter((p) => p && p.connected !== false);
           const sortedByScore = [...connectedPlayers].sort(
-            (a, b) => Number(b?.score || 0) - Number(a?.score || 0)
+            (a, b) => Number(b?.points ?? b?.score ?? 0) - Number(a?.points ?? a?.score ?? 0)
           );
           const top = sortedByScore[0] || null;
           goToSingleWin({
@@ -327,135 +380,291 @@ const SingleGame = () => {
       routedToWinRef.current = false;
     }
 
-    if (snapshot?.room?.state === "ROLE_PICK") {
-      if (!rolePickHandledRef.current) {
-        rolePickHandledRef.current = true;
-        setShowMessage(true);
-        setMessage("Play Again wins! New roles assigned.");
-        setTimeout(() => { handoffToRolePick(); }, 900);
+    if (snapshot?.room?.state === "WAITING") {
+      if (!waitingHandledRef.current) {
+        traceFlow("navigate", { to: "/single-lobby", source: "snapshot_state", reason: "WAITING" });
+        waitingHandledRef.current = true;
+        navigate('/single-lobby');
       }
       return;
     }
 
-    if (snapshot?.room?.state !== "GAME_END" || String(snapshot?.game?.phase || "") !== "VOTING") {
-      setHasVoted(false);
+    if (snapshot?.room?.state === "ROLE_PICK") {
+      traceFlow("navigate", { to: "/role-pick", source: "snapshot_state", reason: "ROLE_PICK" });
+      waitingHandledRef.current = false;
+      navigate('/role-pick');
+      return;
     }
+
+    if (snapshot?.room?.state === "CONFIG") {
+      traceFlow("navigate", { to: "/waiting-room", source: "snapshot_state", reason: "CONFIG" });
+      waitingHandledRef.current = false;
+      navigate('/waiting-room');
+      return;
+    }
+
     if (snapshot?.room?.state === "IN_GAME") {
-      rolePickHandledRef.current = false;
+      waitingHandledRef.current = false;
       setGameState((prev) => ({ ...prev, isGameOver: false, isPaused: false }));
     }
-  }, [snapshot, goToSingleWin, roomCode, handoffToRolePick]);
+  }, [snapshot, goToSingleWin, roomCode, navigate]);
 
   useEffect(() => {
-    const msg = ws.lastMsg;
-    if (!msg) return;
+    if (typeof ws.getMessageWindow !== "function") return;
+    const { lastSeq } = ws.getMessageWindow();
+    lastProcessedMsgSeqRef.current = Number(lastSeq || 0);
+  }, [ws.getMessageWindow]);
 
-    if (msg.type === "op_broadcast" && msg.op) {
-      opsRef.current = [...opsRef.current, msg.op];
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const s = opToStroke(msg.op, canvas);
-        if (s?.type === "clear") {
-          strokesRef.current = [];
-          renderStrokes();
-        } else if (s?.type === "erase") {
-          const radius = Math.max(6, (s.size || 6) * 1.5);
-          const distPointToSegmentLocal = (p, a, b) => {
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
-            const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
-            const clamped = Math.max(0, Math.min(1, t));
-            const cx = a.x + clamped * dx;
-            const cy = a.y + clamped * dy;
-            return Math.hypot(p.x - cx, p.y - cy);
-          };
-          const hitStrokeLocal = (stroke, point) => {
-            const r = radius + (stroke.size || 1) / 2;
-            if (stroke.type === 'line') {
-              return distPointToSegmentLocal(point, stroke.start, stroke.end) <= r;
-            }
-            if (stroke.type === 'circle') {
-              const d = Math.hypot(point.x - stroke.center.x, point.y - stroke.center.y);
-              return Math.abs(d - stroke.radius) <= r;
-            }
-            if (stroke.type === 'free') {
-              const pts = stroke.points || [];
-              for (let i = 1; i < pts.length; i += 1) {
-                if (distPointToSegmentLocal(point, pts[i - 1], pts[i]) <= r) return true;
+  useEffect(() => {
+    if (typeof ws.getMessagesSince !== "function") return;
+    if (typeof ws.getMessageWindow !== "function") return;
+    if (!ws.msgSeq) return;
+
+    const { firstSeq, lastSeq } = ws.getMessageWindow();
+    if (lastSeq && lastSeq < lastProcessedMsgSeqRef.current) {
+      // WS reconnected and local sequence restarted. Rebase consumer cursor.
+      lastProcessedMsgSeqRef.current = Math.max(0, (firstSeq || 1) - 1);
+      requestSnapshot(80);
+    }
+    const expectedSeq = lastProcessedMsgSeqRef.current + 1;
+    if (firstSeq && firstSeq > expectedSeq) {
+      requestSnapshot(120);
+    }
+
+    const entries = ws.getMessagesSince(lastProcessedMsgSeqRef.current);
+    if (!entries.length) return;
+
+    entries.forEach(({ msg }) => {
+      if (msg.type === "op_broadcast" && msg.op) {
+        opsRef.current = [...opsRef.current, msg.op];
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const s = opToStroke(msg.op, canvas);
+          if (s?.type === "clear") {
+            strokesRef.current = [];
+            renderStrokes();
+          } else if (s?.type === "erase") {
+            const radius = Math.max(6, (s.size || 6) * 1.5);
+            const distPointToSegmentLocal = (p, a, b) => {
+              const dx = b.x - a.x;
+              const dy = b.y - a.y;
+              if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+              const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+              const clamped = Math.max(0, Math.min(1, t));
+              const cx = a.x + clamped * dx;
+              const cy = a.y + clamped * dy;
+              return Math.hypot(p.x - cx, p.y - cy);
+            };
+            const hitStrokeLocal = (stroke, point) => {
+              const r = radius + (stroke.size || 1) / 2;
+              if (stroke.type === 'line') {
+                return distPointToSegmentLocal(point, stroke.start, stroke.end) <= r;
+              }
+              if (stroke.type === 'circle') {
+                const d = Math.hypot(point.x - stroke.center.x, point.y - stroke.center.y);
+                return Math.abs(d - stroke.radius) <= r;
+              }
+              if (stroke.type === 'free') {
+                const pts = stroke.points || [];
+                for (let i = 1; i < pts.length; i += 1) {
+                  if (distPointToSegmentLocal(point, pts[i - 1], pts[i]) <= r) return true;
+                }
+                return false;
               }
               return false;
-            }
-            return false;
-          };
-          const next = [];
-          strokesRef.current.forEach((st) => {
-            const shouldErase = s.points.some((pt) => hitStrokeLocal(st, pt));
-            if (!shouldErase) next.push(st);
-          });
-          strokesRef.current = next;
-          renderStrokes();
-        } else if (s) {
-          strokesRef.current = [...strokesRef.current, s];
-          renderStrokes();
+            };
+            const next = [];
+            strokesRef.current.forEach((st) => {
+              const shouldErase = s.points.some((pt) => hitStrokeLocal(st, pt));
+              if (!shouldErase) next.push(st);
+            });
+            strokesRef.current = next;
+            renderStrokes();
+          } else if (s) {
+            strokesRef.current = [...strokesRef.current, s];
+            renderStrokes();
+          }
+        }
+        bumpOps();
+      }
+
+      if (msg.type === "guess_chat") {
+        const sender = String(msg.name || "Player");
+        const text = String(msg.text || "").trim();
+        if (!text) return;
+        setChatMessages((prev) => [...prev, { type: "user", text: `${sender}: ${text}` }]);
+      }
+
+      if (msg.type === "guess_result") {
+        requestSnapshot(60);
+      }
+
+      if (msg.type === "budget_update" && msg.budget && typeof msg.budget.stroke_remaining === "number") {
+        setServerStrokesLeft(Math.max(0, Number(msg.budget.stroke_remaining)));
+      }
+
+      if (msg.type === "vote_progress") {
+        setVoteStats({
+          ts: Number(msg.ts || 0),
+          vote_end_at: Number(msg.vote_end_at || 0),
+          yes_count: Number(msg.yes_count || 0),
+          voted_count: Number(msg.voted_count || 0),
+          eligible: Number(msg.eligible || 0),
+        });
+      }
+
+      if (msg.type === "vote_resolved") {
+        traceFlow("vote_resolved_msg", {
+          outcome: msg.outcome || null,
+          yesCount: Number(msg.yes_count || 0),
+          eligible: Number(msg.eligible || 0),
+          ts: Number(msg.ts || 0),
+        });
+        setVoteStats(null);
+        setVoteError(null);
+        if (msg.outcome === "YES") {
+          setShowMessage(true);
+          setMessage("Vote passed. Returning to lobby...");
+        } else if (msg.outcome === "NO") {
+          setShowMessage(true);
+          setMessage("Vote failed. Showing final standings...");
+        }
+        requestSnapshot(40);
+      }
+
+      if (msg.type === "error") {
+        if (isVotingPhase && (msg.code === "VOTE_EXPIRED" || msg.code === "BAD_STATE" || msg.code === "BAD_PHASE")) {
+          setVoteError(msg);
+        }
+        if (msg.code === "NOT_GUESSER") {
+          setShowMessage(true);
+          setMessage("Only guessers can send guesses.");
+        }
+        if (msg.code === "STROKE_LIMIT" || msg.code === "NO_BUDGET") {
+          setShowMessage(true);
+          setMessage("OUT OF INK!");
+        }
+        if (
+          msg.code === "BAD_STATE" ||
+          msg.code === "BAD_PHASE" ||
+          msg.code === "NOT_IN_GAME" ||
+          msg.code === "GAME_ENDED" ||
+          msg.code === "STROKE_LIMIT"
+        ) {
+          requestSnapshot(120);
         }
       }
-      bumpOps();
-    }
 
-    if (msg.type === "guess_chat") {
-      const sender = String(msg.name || "Player");
-      const text = String(msg.text || "").trim();
-      if (!text) return;
-      setChatMessages((prev) => [...prev, { type: "user", text: `${sender}: ${text}` }]);
-    }
-
-    if (msg.type === "guess_result" && msg.correct) {
-      ws.send({ type: "snapshot" });
-    }
-
-    if (msg.type === "budget_update" && msg.budget && typeof msg.budget.stroke_remaining === "number") {
-      setGameState((prev) => {
-        const used = Math.max(0, strokeLimit - Number(msg.budget.stroke_remaining));
-        return { ...prev, strokesUsed: used };
-      });
-    }
-
-    if (msg.type === "error" && msg.code === "NOT_GUESSER") {
-      setShowMessage(true);
-      setMessage("Only guessers can send guesses.");
-    }
-
-    if (msg.type === "room_state_changed" && msg.state === "ROLE_PICK") {
-      if (!rolePickHandledRef.current) {
-        rolePickHandledRef.current = true;
-        setShowMessage(true);
-        setMessage("Play Again wins! New roles assigned.");
-        setTimeout(() => { handoffToRolePick(); }, 900);
+      if (msg.type === "room_state_changed") {
+        traceFlow("room_state_changed_msg", {
+          nextState: msg.state || null,
+          raw: msg,
+        });
+        if (msg.state === "WAITING") {
+          if (!waitingHandledRef.current) {
+            traceFlow("navigate", { to: "/single-lobby", source: "room_state_changed", reason: "WAITING" });
+            waitingHandledRef.current = true;
+            navigate('/single-lobby');
+          }
+          return;
+        }
+        if (msg.state === "ROLE_PICK") {
+          traceFlow("navigate", { to: "/role-pick", source: "room_state_changed", reason: "ROLE_PICK" });
+          waitingHandledRef.current = false;
+          navigate('/role-pick');
+          return;
+        }
+        if (msg.state === "CONFIG") {
+          traceFlow("navigate", { to: "/waiting-room", source: "room_state_changed", reason: "CONFIG" });
+          waitingHandledRef.current = false;
+          navigate('/waiting-room');
+          return;
+        }
       }
-      return;
-    }
 
-    if (
-      msg.type === "room_state_changed" ||
-      msg.type === "phase_changed" ||
-      msg.type === "roles_assigned" ||
-      msg.type === "player_joined" ||
-      msg.type === "player_left" ||
-      msg.type === "game_end"
-    ) {
-      ws.send({ type: "snapshot" });
-    }
-  }, [ws.lastMsg, ws.send, strokeLimit, handoffToRolePick]);
+      if (
+        msg.type === "room_state_changed" ||
+        msg.type === "phase_changed" ||
+        msg.type === "roles_assigned" ||
+        msg.type === "player_joined" ||
+        msg.type === "player_left" ||
+        msg.type === "game_end" ||
+        msg.type === "vote_progress" ||
+        msg.type === "vote_resolved" ||
+        msg.type === "player_updated" ||
+        msg.type === "teams_updated"
+      ) {
+        requestSnapshot(120);
+      }
+    });
+
+    lastProcessedMsgSeqRef.current = entries[entries.length - 1].seq;
+  }, [ws.msgSeq, ws.getMessagesSince, ws.getMessageWindow, requestSnapshot, navigate, isVotingPhase, traceFlow]);
 
   useEffect(() => {
     if (ws.status === "CONNECTED") {
-      ws.send({ type: "snapshot" });
+      requestSnapshot();
     }
-  }, [ws.status, ws.send]);
+  }, [ws.status, requestSnapshot]);
+
+  useEffect(() => {
+    if (!isVotingPhase) {
+      setHasVoted(false);
+      setVoteStats(null);
+      setVoteRemaining(null);
+      setVoteError(null);
+      return;
+    }
+    if (!myPid) return;
+    setHasVoted(Boolean(votesNext && votesNext[myPid]));
+  }, [isVotingPhase, myPid, votesNext]);
+
+  useEffect(() => {
+    if (!isVotingPhase) return;
+    const voteEndAt = Number(gameSnap?.vote_end_at || 0);
+    if (!voteEndAt) {
+      setVoteRemaining(null);
+      return;
+    }
+
+    const serverTs = Number(snapshot?.server_ts || 0);
+    const drift = serverTs ? Date.now() / 1000 - serverTs : 0;
+    const update = () => {
+      const serverNow = Math.floor(Date.now() / 1000 - drift);
+      const rem = Math.max(0, voteEndAt - serverNow);
+      setVoteRemaining(rem);
+    };
+
+    update();
+    const id = setInterval(update, 250);
+    return () => clearInterval(id);
+  }, [isVotingPhase, gameSnap?.vote_end_at, snapshot?.server_ts]);
+
+  useEffect(() => {
+    if (!isVotingPhase || !hasVoted) return;
+    if (ws.status !== "CONNECTED") return;
+    const id = setInterval(() => {
+      requestSnapshot();
+    }, 800);
+    return () => clearInterval(id);
+  }, [isVotingPhase, hasVoted, ws.status, requestSnapshot]);
+
+  useEffect(() => {
+    if (!isInRound || !hasServerTimer) {
+      phaseZeroSnapshotRef.current = false;
+      return;
+    }
+    if (serverTimeLeft > 0) {
+      phaseZeroSnapshotRef.current = false;
+      return;
+    }
+    if (phase === "VOTING") return;
+    if (phaseZeroSnapshotRef.current) return;
+    phaseZeroSnapshotRef.current = true;
+    requestSnapshot();
+  }, [isInRound, hasServerTimer, serverTimeLeft, phase, requestSnapshot]);
 
 const MAX_TIME = 60;
-  const MAX_STROKES = 30;
   
   // Game state
   const [gameState, setGameState] = useState({
@@ -463,8 +672,6 @@ const MAX_TIME = 60;
     size: 8,
     brush: 'line',
     mode: 'draw',
-    timeLeft: MAX_TIME,
-    strokesUsed: 0,
     isGameOver: false,
     isPaused: false,
     round: 1,
@@ -472,7 +679,7 @@ const MAX_TIME = 60;
     score: 0
   });
 
-  const strokesRemaining = strokeLimit ? Math.max(0, strokeLimit - (gameState?.strokesUsed || 0)) : 0;
+  const strokesRemaining = strokeLimit ? Math.max(0, strokeLimit - strokesUsed) : 0;
 
   // UI state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -484,7 +691,6 @@ const MAX_TIME = 60;
     { type: 'system', text: 'Game Started! Good luck!' }
   ]);
   const [chatInput, setChatInput] = useState('');
-  const [hasVoted, setHasVoted] = useState(false);
   
   // Audio settings
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -647,20 +853,6 @@ const MAX_TIME = 60;
       window.removeEventListener('resize', resize);
     };
   }, []);
-
-  // Game timer
-  useEffect(() => {
-    if (!hasServerTimer) return;
-    setGameState((prev) => ({
-      ...prev,
-      timeLeft: serverTimeLeft,
-    }));
-  }, [hasServerTimer, serverTimeLeft]);
-
-  useEffect(() => {
-    if (!strokeLimit) return;
-    setGameState((prev) => ({ ...prev, strokesUsed }));
-  }, [strokeLimit, strokesUsed]);
 
   // Message timeout
   useEffect(() => {
@@ -980,8 +1172,7 @@ const MAX_TIME = 60;
   const setTool = (type, value, el) => {
     if (!canDraw) return;
     setGameState(prev => {
-      const limit = strokeLimit || MAX_STROKES;
-      if (prev.strokesUsed >= limit || prev.isPaused) return prev;
+      if (strokesRemaining <= 0 || prev.isPaused) return prev;
       
       audioEngineRef.current?.playClick();
       
@@ -1001,8 +1192,7 @@ const MAX_TIME = 60;
   const useEraser = () => {
     if (!canDraw) return;
     setGameState(prev => {
-      const limit = strokeLimit || MAX_STROKES;
-      if (prev.strokesUsed >= limit || prev.isPaused) return prev;
+      if (strokesRemaining <= 0 || prev.isPaused) return prev;
       audioEngineRef.current?.playClick();
       return { ...prev, mode: 'erase' };
     });
@@ -1037,8 +1227,25 @@ const MAX_TIME = 60;
 
   const sendVoteNext = (vote) => {
     if (!isVotingPhase || hasVoted) return;
-    ws.send({ type: "vote_next", vote });
+    if (voteRemaining !== null && voteRemaining <= 0) return;
+    traceFlow("vote_submit_click", {
+      vote,
+      voteRemaining,
+      hasVoted,
+      roomState: snapshot?.room?.state || null,
+      phase: snapshot?.game?.phase || null,
+      voteEndAt: Number(gameSnap?.vote_end_at || 0),
+    });
+    setVoteError(null);
+    const ok = ws.send({ type: "vote_next", vote });
+    if (!ok) {
+      traceFlow("vote_submit_failed_not_connected", { vote });
+      setShowMessage(true);
+      setMessage("Connection issue. Reconnecting...");
+      return;
+    }
     setHasVoted(true);
+    requestSnapshot(120);
     setShowMessage(true);
     setMessage(vote === "yes" ? "Voted: Play Again" : "Voted: Stop");
   };
@@ -1065,10 +1272,11 @@ const MAX_TIME = 60;
   };
 
   // ========== UI CALCULATIONS ==========
-  const effectiveMaxStrokes = strokeLimit || MAX_STROKES;
-  const strokePercentage = (gameState.strokesUsed / Math.max(1, effectiveMaxStrokes)) * 100;
+  const effectiveMaxStrokes = Math.max(1, strokeLimit);
+  const strokePercentage = (strokesUsed / effectiveMaxStrokes) * 100;
+  const displayTimeLeft = hasServerTimer ? serverTimeLeft : MAX_TIME;
   const effectiveMaxTime = hasServerTimer && timeLimitSec ? timeLimitSec : MAX_TIME;
-  const timePercentage = (gameState.timeLeft / Math.max(1, effectiveMaxTime)) * 100;
+  const timePercentage = (displayTimeLeft / Math.max(1, effectiveMaxTime)) * 100;
   
   const getStrokeBarColor = () => {
     if (strokePercentage > 80) return '#ef4444';
@@ -1077,7 +1285,7 @@ const MAX_TIME = 60;
   };
 
   const getTimerColor = () => {
-    return gameState.timeLeft <= 10 ? '#ef4444' : '#f97316';
+    return displayTimeLeft <= 10 ? '#ef4444' : '#f97316';
   };
 
   // ========== RENDER ==========
@@ -1101,7 +1309,7 @@ const MAX_TIME = 60;
 
           <div className="data-item">
             <span className="data-label">Ink</span>
-            <span className="data-value stroke">{gameState.strokesUsed}</span>
+            <span className="data-value stroke">{strokesUsed}</span>
             <div className="data-bar-bg">
               <div 
                 className="data-bar-fill stroke" 
@@ -1123,7 +1331,7 @@ const MAX_TIME = 60;
           )}
 
           <div className="timer-box" style={{ color: getTimerColor() }}>
-            {gameState.timeLeft}
+            {displayTimeLeft}
           </div>
           <div className="data-bar-bg" style={{ width: '100px' }}>
             <div 
@@ -1170,6 +1378,7 @@ const MAX_TIME = 60;
         </div>
 
         <aside className="sidebar">
+          {isRoleDrawer ? (
           <div className="panel-card tools-card">
             <div className="tools-row">
               <span className="tools-label">Color</span>
@@ -1243,6 +1452,33 @@ const MAX_TIME = 60;
               </div>
             </div>
           </div>
+          ) : (
+            <div className="panel-card tools-card">
+              <div className="tools-row" style={{ justifyContent: 'space-between' }}>
+                <span className="tools-label">Role</span>
+                <span
+                  style={{
+                    color: 'var(--blue)',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.04em'
+                  }}
+                >
+                  {isRoleGuesser ? 'Guesser' : isRoleGm ? 'Game Master' : 'Viewer'}
+                </span>
+              </div>
+              <div className="tools-row" style={{ marginTop: '4px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  {isRoleGuesser
+                    ? 'Watch the drawing and submit guesses in chat.'
+                    : isRoleGm
+                      ? 'Observe this round. Drawing tools are drawer-only.'
+                      : 'You are observing this round.'}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div className="panel-card chat-card">
             <div className="chat-log-container" id="chatLog">
@@ -1255,28 +1491,34 @@ const MAX_TIME = 60;
                 </div>
               ))}
             </div>
-            <div className="input-area">
-              <input 
-                type="text" 
-                className="guess-box" 
-                placeholder={
-                  canGuess
-                    ? "Type guess..."
-                    : !isInRound
-                      ? "Guessing opens when game starts"
-                      : "Only guessers can type guesses"
-                }
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                disabled={!canGuess}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') sendMessage();
-                  if (!canGuess) return;
-                  audioEngineRef.current?.playTyping();
-                }}
-              />
-              <button className="send-btn" onClick={sendMessage} disabled={!canGuess}>SEND</button>
-            </div>
+            {isRoleGuesser ? (
+              <div className="input-area">
+                <input 
+                  type="text" 
+                  className="guess-box" 
+                  placeholder={!isInRound ? "Guessing opens when game starts" : "Type guess..."}
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  disabled={!canGuess}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') sendMessage();
+                    if (!canGuess) return;
+                    audioEngineRef.current?.playTyping();
+                  }}
+                />
+                <button className="send-btn" onClick={sendMessage} disabled={!canGuess}>SEND</button>
+              </div>
+            ) : (
+              <div className="input-area" style={{ justifyContent: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  {!isInRound
+                    ? 'Guessing opens when game starts.'
+                    : isRoleDrawer
+                      ? 'You are drawing this round.'
+                      : 'Only the guesser can submit guesses this round.'}
+                </span>
+              </div>
+            )}
           </div>
 
         </aside>
@@ -1295,18 +1537,28 @@ const MAX_TIME = 60;
               <p style={{ color: 'var(--text-muted)', marginTop: '8px' }}>
                 Play next round or stop?
               </p>
+              <p style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '12px' }}>
+                {voteRemaining === null
+                  ? 'Syncing vote timer...'
+                  : voteRemaining > 0
+                    ? `Vote ends in: ${voteRemaining}s`
+                    : 'Vote window ended. Resolving...'}
+              </p>
+              <p style={{ color: 'var(--text-muted)', marginTop: '4px', fontSize: '12px' }}>
+                YES: {effectiveYes} / {effectiveEligible} · Voted: {effectiveVoted} / {effectiveEligible}
+              </p>
             </div>
             <div className="modal-actions">
               <button
                 className="btn-modal btn-resume"
-                disabled={hasVoted}
+                disabled={hasVoted || (voteRemaining !== null && voteRemaining <= 0)}
                 onClick={() => sendVoteNext('yes')}
               >
                 PLAY NEXT ROUND
               </button>
               <button
                 className="btn-modal btn-exit"
-                disabled={hasVoted}
+                disabled={hasVoted || (voteRemaining !== null && voteRemaining <= 0)}
                 onClick={() => sendVoteNext('no')}
               >
                 STOP
@@ -1315,6 +1567,11 @@ const MAX_TIME = 60;
             {hasVoted && (
               <p style={{ color: '#a3e635', marginTop: '10px', textAlign: 'center' }}>
                 Vote submitted. Waiting for other players...
+              </p>
+            )}
+            {voteError && (
+              <p style={{ color: '#ff6b81', marginTop: '8px', textAlign: 'center' }}>
+                {voteError.code}: {voteError.message}
               </p>
             )}
           </div>

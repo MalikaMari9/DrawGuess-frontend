@@ -4,6 +4,15 @@ import "../styles/RolePick.css";
 import "../styles/BattleLobby.css";
 import { useRoomWSContext } from "../ws/RoomWSContext";
 
+const traceFlow = (event, payload = {}) => {
+  if (typeof window !== "undefined" && window.localStorage.getItem("dg_flow_trace") === "0") return;
+  console.log("[FLOW][RolePick]", {
+    event,
+    route: typeof window !== "undefined" ? window.location.pathname : "",
+    ...payload,
+  });
+};
+
 const RolePick = () => {
   const { ws } = useRoomWSContext();
   const navigate = useNavigate();
@@ -76,6 +85,12 @@ const RolePick = () => {
 
   useEffect(() => {
     if (secondsLeft <= 0) {
+      traceFlow("navigate", {
+        source: "countdown_complete",
+        to: "/waiting-room",
+        roomState: room.state || null,
+        mode: room.mode || null,
+      });
       navigate("/waiting-room");
       return;
     }

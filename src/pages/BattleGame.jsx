@@ -127,6 +127,7 @@ const BattleGame = () => {
   const eraserPath1Ref = useRef([]);
   const eraserPath2Ref = useRef([]);
   const phaseZeroSnapshotRef = useRef(false);
+  const lastProcessedMsgSeqRef = useRef(0);
 
   // ✅ FIXED: Drawing states - missing = operator
   const [isDrawing1, setIsDrawing1] = useState(false);
@@ -376,193 +377,213 @@ const BattleGame = () => {
   };
 
   useEffect(() => {
-    const m = ws.lastMsg;
-    if (!m) return;
+    if (typeof ws.getMessageWindow !== "function") return;
+    const { lastSeq } = ws.getMessageWindow();
+    lastProcessedMsgSeqRef.current = Number(lastSeq || 0);
+  }, [ws.getMessageWindow]);
 
-    if (m.type === "room_snapshot") {
-      setPhase(m.game?.phase || "");
-      setRoundEndAt(Number(m.game?.draw_end_at || 0));
-      setGuessEndAt(Number(m.game?.guess_end_at || 0));
-      const snapBudget = m.game?.budget;
-      if (snapBudget && (typeof snapBudget.A === "number" || typeof snapBudget.B === "number")) {
-        setBudget({
-          A: Number(snapBudget.A ?? 0),
-          B: Number(snapBudget.B ?? 0),
-        });
-      }
-      const snapCooldown = m.game?.cooldown || {};
-      setSabotageCooldown({
-        A: Number(snapCooldown.sabotage_next_ts_A || 0),
-        B: Number(snapCooldown.sabotage_next_ts_B || 0),
-      });
-      const sp = m.round_config?.strokes_per_phase;
-      if (typeof sp === "number" && sp > 0) setMaxStrokes(sp);
-      const score = m.game?.score || {};
-      if (typeof score.A === "number") setRedScore(score.A);
-      if (typeof score.B === "number") setBlueScore(score.B);
-      const snapTeamGuessed = m.game?.team_guessed || {};
-      if (myTeam && snapTeamGuessed[myTeam]) {
-        setHasGuessedThisPhase(true);
-      }
-      const ops = Array.isArray(m.ops) ? m.ops : [];
-      if (ops.length > 0) {
-        strokes1Ref.current = [];
-        strokes2Ref.current = [];
-        ops.forEach((o) => {
-          const canvas = o.canvas || null;
-          const st = convertOpToStroke(o.op || o);
-          if (!st) return;
-          if (st.type === "clear") {
-            if (canvas === "A") strokes1Ref.current = [];
-            else if (canvas === "B") strokes2Ref.current = [];
-            return;
-          }
-          if (st.type === "erase") {
-            const radius = Math.max(6, (st.size || 6) * 1.5);
-            st.points.forEach((pt) => {
-              if (canvas === "A") eraseAt(1, pt, radius);
-              else if (canvas === "B") eraseAt(2, pt, radius);
-            });
-            return;
-          }
-          if (canvas === "A") strokes1Ref.current.push(st);
-          else if (canvas === "B") strokes2Ref.current.push(st);
-        });
-        renderStrokes(1);
-        renderStrokes(2);
-      }
-    }
+  useEffect(() => {
+    if (typeof ws.getMessagesSince !== "function") return;
+    if (typeof ws.getMessageWindow !== "function") return;
+    if (!ws.msgSeq) return;
 
-    if (m.type === "op_broadcast") {
-      const canvas = m.canvas || null;
-      const st = convertOpToStroke(m.op);
-      if (!st) return;
-      // Avoid double-applying our own ops (draw/erase/clear/sabotage are rendered locally first)
-      const myPidNow = ws.pid || localStorage.getItem("dg_pid");
-      if (m.by === myPidNow) return;
-      if (st.type === "clear") {
-        if (canvas === "A") {
-          strokes1Ref.current = [];
-          renderStrokes(1);
-        } else if (canvas === "B") {
-          strokes2Ref.current = [];
-          renderStrokes(2);
-        }
-        return;
-      }
-      if (st.type === "erase") {
-        const radius = Math.max(6, (st.size || 6) * 1.5);
-        if (canvas === "A") {
-          st.points.forEach((pt) => eraseAt(1, pt, radius));
-          renderStrokes(1);
-        } else if (canvas === "B") {
-          st.points.forEach((pt) => eraseAt(2, pt, radius));
-          renderStrokes(2);
-        }
-        return;
-      }
-      if (canvas === "A") {
-        strokes1Ref.current.push(st);
-        renderStrokes(1);
-      } else if (canvas === "B") {
-        strokes2Ref.current.push(st);
-        renderStrokes(2);
-      }
-    }
-
-    if (m.type === "guess_chat") {
-      const pid = m.pid;
-      const isTeamA = players.find((x) => x.pid === pid)?.team === "A";
-      const line = { text: m.text || "", isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")) };
-      if (isTeamA) {
-        setTeam1Messages((prev) => [...prev, line]);
-      } else {
-        setTeam2Messages((prev) => [...prev, line]);
-      }
-    }
-
-    if (m.type === "guess_result") {
-      const pid = m.by;
-      const team = m.team || players.find((x) => x.pid === pid)?.team;
-      const result = m.result || (m.correct ? "CORRECT" : "WRONG");
-      const prefix = result === "CORRECT" ? "Correct:" : result === "NO_GUESS" ? "No guess:" : "Wrong:";
-      const text = m.text || m.word || (result === "NO_GUESS" ? "No guess submitted" : "");
-      const lineText = text ? `${prefix} ${text}` : prefix;
-      const kind = result === "WRONG" ? "wrong" : result === "NO_GUESS" ? "no-guess" : null;
-      const line = { text: lineText, isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")), kind };
-      if (team && team === myTeam) {
-        setHasGuessedThisPhase(true);
-      }
-      if (team === "A") {
-        setTeam1Messages((prev) => [...prev, line]);
-      } else if (team === "B") {
-        setTeam2Messages((prev) => [...prev, line]);
-      }
-    }
-
-    if (m.type === "budget_update") {
-      const b = m.budget || {};
-      setBudget({
-        A: Number(b.A ?? 0),
-        B: Number(b.B ?? 0),
-      });
-    }
-
-    if (m.type === "phase_changed") {
-      setPhase(m.phase || "");
-      setHasGuessedThisPhase(false);
+    const { firstSeq } = ws.getMessageWindow();
+    const expectedSeq = lastProcessedMsgSeqRef.current + 1;
+    if (firstSeq && firstSeq > expectedSeq) {
       ws.send({ type: "snapshot" });
     }
 
-    if (m.type === "sabotage_used") {
-      const byPid = m.by;
-      const p = players.find((x) => x.pid === byPid);
-      const team = p?.team;
-      if (team === "A" || team === "B") {
-        setSabotageCooldown((prev) => ({ ...prev, [team]: Number(m.cooldown_until || 0) }));
+    const entries = ws.getMessagesSince(lastProcessedMsgSeqRef.current);
+    if (!entries.length) return;
+
+    entries.forEach(({ msg: m }) => {
+      if (m.type === "room_snapshot") {
+        setPhase(m.game?.phase || "");
+        setRoundEndAt(Number(m.game?.draw_end_at || 0));
+        setGuessEndAt(Number(m.game?.guess_end_at || 0));
+        const snapBudget = m.game?.budget;
+        if (snapBudget && (typeof snapBudget.A === "number" || typeof snapBudget.B === "number")) {
+          setBudget({
+            A: Number(snapBudget.A ?? 0),
+            B: Number(snapBudget.B ?? 0),
+          });
+        }
+        const snapCooldown = m.game?.cooldown || {};
+        setSabotageCooldown({
+          A: Number(snapCooldown.sabotage_next_ts_A || 0),
+          B: Number(snapCooldown.sabotage_next_ts_B || 0),
+        });
+        const sp = m.round_config?.strokes_per_phase;
+        if (typeof sp === "number" && sp > 0) setMaxStrokes(sp);
+        const score = m.game?.score || {};
+        if (typeof score.A === "number") setRedScore(score.A);
+        if (typeof score.B === "number") setBlueScore(score.B);
+        const snapTeamGuessed = m.game?.team_guessed || {};
+        if (myTeam && snapTeamGuessed[myTeam]) {
+          setHasGuessedThisPhase(true);
+        }
+        const ops = Array.isArray(m.ops) ? m.ops : [];
+        if (ops.length > 0) {
+          strokes1Ref.current = [];
+          strokes2Ref.current = [];
+          ops.forEach((o) => {
+            const canvas = o.canvas || null;
+            const st = convertOpToStroke(o.op || o);
+            if (!st) return;
+            if (st.type === "clear") {
+              if (canvas === "A") strokes1Ref.current = [];
+              else if (canvas === "B") strokes2Ref.current = [];
+              return;
+            }
+            if (st.type === "erase") {
+              const radius = Math.max(6, (st.size || 6) * 1.5);
+              st.points.forEach((pt) => {
+                if (canvas === "A") eraseAt(1, pt, radius);
+                else if (canvas === "B") eraseAt(2, pt, radius);
+              });
+              return;
+            }
+            if (canvas === "A") strokes1Ref.current.push(st);
+            else if (canvas === "B") strokes2Ref.current.push(st);
+          });
+          renderStrokes(1);
+          renderStrokes(2);
+        }
       }
-      sabotageArmed1Ref.current = false;
-      sabotageArmed2Ref.current = false;
-    }
 
-    if (m.type === "game_end") {
-      const winnerTeam = m.winner || "";
-      const winnerName =
-        winnerTeam === "A" ? "Red Team" : winnerTeam === "B" ? "Blue Team" : "";
-      const totalRounds = Number(snapshot.round_config?.max_rounds || 5);
-      navigate("/battle-round-win", {
-        state: {
-          round: m.round_no || room.round_no || 1,
-          totalRounds,
-          isWin: Boolean(winnerTeam),
-          word: m.word || snapshot.round_config?.secret_word || "",
-          reason: m.reason || "",
-          winner: {
-            name: winnerName || winnerTeam || "",
-            avatar: winnerTeam,
-            points: 0,
-          },
-          nextRoundDelay: 5,
-        },
-      });
-    }
+      if (m.type === "op_broadcast") {
+        const canvas = m.canvas || null;
+        const st = convertOpToStroke(m.op);
+        if (!st) return;
+        // Avoid double-applying our own ops (draw/erase/clear/sabotage are rendered locally first)
+        const myPidNow = ws.pid || localStorage.getItem("dg_pid");
+        if (m.by === myPidNow) return;
+        if (st.type === "clear") {
+          if (canvas === "A") {
+            strokes1Ref.current = [];
+            renderStrokes(1);
+          } else if (canvas === "B") {
+            strokes2Ref.current = [];
+            renderStrokes(2);
+          }
+          return;
+        }
+        if (st.type === "erase") {
+          const radius = Math.max(6, (st.size || 6) * 1.5);
+          if (canvas === "A") {
+            st.points.forEach((pt) => eraseAt(1, pt, radius));
+            renderStrokes(1);
+          } else if (canvas === "B") {
+            st.points.forEach((pt) => eraseAt(2, pt, radius));
+            renderStrokes(2);
+          }
+          return;
+        }
+        if (canvas === "A") {
+          strokes1Ref.current.push(st);
+          renderStrokes(1);
+        } else if (canvas === "B") {
+          strokes2Ref.current.push(st);
+          renderStrokes(2);
+        }
+      }
 
-    if (m.type === "room_state_changed") {
-      if (m.state === "GAME_END") navigate("/battle-round-win");
-      if (m.state === "ROLE_PICK") navigate("/role-pick");
-      if (m.state === "CONFIG") navigate("/waiting-room");
-    }
+      if (m.type === "guess_chat") {
+        const pid = m.pid;
+        const isTeamA = players.find((x) => x.pid === pid)?.team === "A";
+        const line = { text: m.text || "", isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")) };
+        if (isTeamA) {
+          setTeam1Messages((prev) => [...prev, line]);
+        } else {
+          setTeam2Messages((prev) => [...prev, line]);
+        }
+      }
 
-    if (m.type === "error") {
-      setLastError(m);
-      const code = m.code || "";
-      if (code.includes("SABOTAGE") || code === "INSUFFICIENT_BUDGET" || code === "NO_BUDGET") {
-        sabotageArmed1Ref.current = false;
-        sabotageArmed2Ref.current = false;
+      if (m.type === "guess_result") {
+        const pid = m.by;
+        const team = m.team || players.find((x) => x.pid === pid)?.team;
+        const result = m.result || (m.correct ? "CORRECT" : "WRONG");
+        const prefix = result === "CORRECT" ? "Correct:" : result === "NO_GUESS" ? "No guess:" : "Wrong:";
+        const text = m.text || m.word || (result === "NO_GUESS" ? "No guess submitted" : "");
+        const lineText = text ? `${prefix} ${text}` : prefix;
+        const kind = result === "WRONG" ? "wrong" : result === "NO_GUESS" ? "no-guess" : null;
+        const line = { text: lineText, isOwn: pid === (ws.pid || localStorage.getItem("dg_pid")), kind };
+        if (team && team === myTeam) {
+          setHasGuessedThisPhase(true);
+        }
+        if (team === "A") {
+          setTeam1Messages((prev) => [...prev, line]);
+        } else if (team === "B") {
+          setTeam2Messages((prev) => [...prev, line]);
+        }
+      }
+
+      if (m.type === "budget_update") {
+        const b = m.budget || {};
+        setBudget({
+          A: Number(b.A ?? 0),
+          B: Number(b.B ?? 0),
+        });
+      }
+
+      if (m.type === "phase_changed") {
+        setPhase(m.phase || "");
+        setHasGuessedThisPhase(false);
         ws.send({ type: "snapshot" });
       }
-    }
-  }, [ws.lastMsg, players, ws.pid, ws.send, navigate, snapshot.round_config, maxStrokes]);
+
+      if (m.type === "sabotage_used") {
+        const byPid = m.by;
+        const p = players.find((x) => x.pid === byPid);
+        const team = p?.team;
+        if (team === "A" || team === "B") {
+          setSabotageCooldown((prev) => ({ ...prev, [team]: Number(m.cooldown_until || 0) }));
+        }
+        sabotageArmed1Ref.current = false;
+        sabotageArmed2Ref.current = false;
+      }
+
+      if (m.type === "game_end") {
+        const winnerTeam = m.winner || "";
+        const winnerName =
+          winnerTeam === "A" ? "Red Team" : winnerTeam === "B" ? "Blue Team" : "";
+        const totalRounds = Number(snapshot.round_config?.max_rounds || 5);
+        navigate("/battle-round-win", {
+          state: {
+            round: m.round_no || room.round_no || 1,
+            totalRounds,
+            isWin: Boolean(winnerTeam),
+            word: m.word || snapshot.round_config?.secret_word || "",
+            reason: m.reason || "",
+            winner: {
+              name: winnerName || winnerTeam || "",
+              avatar: winnerTeam,
+              points: 0,
+            },
+            nextRoundDelay: 5,
+          },
+        });
+      }
+
+      if (m.type === "room_state_changed") {
+        if (m.state === "GAME_END") navigate("/battle-round-win");
+        if (m.state === "ROLE_PICK") navigate("/role-pick");
+        if (m.state === "CONFIG") navigate("/waiting-room");
+      }
+
+      if (m.type === "error") {
+        setLastError(m);
+        const code = m.code || "";
+        if (code.includes("SABOTAGE") || code === "INSUFFICIENT_BUDGET" || code === "NO_BUDGET") {
+          sabotageArmed1Ref.current = false;
+          sabotageArmed2Ref.current = false;
+          ws.send({ type: "snapshot" });
+        }
+      }
+    });
+
+    lastProcessedMsgSeqRef.current = entries[entries.length - 1].seq;
+  }, [ws.msgSeq, ws.getMessagesSince, ws.getMessageWindow, players, ws.pid, ws.send, navigate, snapshot.round_config, maxStrokes, myTeam, room.round_no]);
   const renderStrokes = (teamId) => {
     const canvas = teamId === 1 ? canvas1Ref.current : canvas2Ref.current;
     const ctx = teamId === 1 ? ctx1Ref.current : ctx2Ref.current;
