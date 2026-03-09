@@ -2,6 +2,7 @@ import React, {useState, useEffect, useRef, useCallback, useMemo} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRoomWSContext } from '../ws/RoomWSContext';
 import '../styles/SingleGame.css';
+import '../styles/GameShellBase.css';
 
 const LOGICAL_CANVAS_W = 1024;
 const LOGICAL_CANVAS_H = 768;
@@ -127,6 +128,8 @@ const SingleGame = () => {
   const lastProcessedMsgSeqRef = useRef(0);
   const waitingHandledRef = useRef(false);
   const lastTraceKeyRef = useRef("");
+  const prevPointsByPidRef = useRef({});
+  const lastVotePayoutKeyRef = useRef("");
 
   // ===== Shared canvas ops (from backend) =====
   const opsRef = useRef([]);         // canonical ops (1024x768) from server
@@ -153,12 +156,17 @@ const SingleGame = () => {
   const [voteStats, setVoteStats] = useState(null);
   const [voteRemaining, setVoteRemaining] = useState(null);
   const [voteError, setVoteError] = useState(null);
+  const [voteAnimKey, setVoteAnimKey] = useState(0);
+  const [votePayoutRows, setVotePayoutRows] = useState([]);
+  const [votePayoutActive, setVotePayoutActive] = useState(false);
+  const [votePayoutShowTotals, setVotePayoutShowTotals] = useState(false);
   const strokesLeft = Math.max(0, Number.isFinite(serverStrokesLeft) ? serverStrokesLeft : snapshotStrokesLeft);
   const strokesUsed = strokeLimit ? Math.max(0, strokeLimit - strokesLeft) : 0;
   const roomRoundNo = Number(snapshot?.room?.round_no || 0);
   const isInRound = snapshot?.room?.state === "IN_GAME";
   const isVotingPhase = snapshot?.room?.state === "GAME_END" && String(gameSnap?.phase || "") === "VOTING";
   const phase = String(gameSnap?.phase || "");
+  const roundEndReason = String(gameSnap?.end_reason || "");
   const gmPid = String(snapshot?.room?.gm_pid || snapshot?.roles?.gm || "");
   const drawerPid = String(gameSnap?.drawer_pid || snapshot?.roles?.drawer || "");
   const isGmByPid = Boolean(myPid) && gmPid === myPid;
@@ -620,6 +628,95 @@ const SingleGame = () => {
   }, [isVotingPhase, myPid, votesNext]);
 
   useEffect(() => {
+    const players = Array.isArray(snapshot?.players) ? snapshot.players : [];
+    const pointsByPidNow = {};
+    players.forEach((p) => {
+      if (!p?.pid) return;
+      pointsByPidNow[String(p.pid)] = Number(p.points ?? p.score ?? 0);
+    });
+
+    if (isVotingPhase) {
+      const payoutKey = `${roomRoundNo}:${roundEndReason}:${roundEndWinnerPid}:${drawerPid}`;
+      if (lastVotePayoutKeyRef.current !== payoutKey) {
+        const prevPointsByPid = prevPointsByPidRef.current || {};
+        let nextRows = players
+          .filter((p) => p?.pid)
+          .map((p) => {
+            const pid = String(p.pid);
+            const newPoints = Number(p.points ?? p.score ?? 0);
+            const hasPrev = Object.prototype.hasOwnProperty.call(prevPointsByPid, pid);
+            const oldPoints = hasPrev ? Number(prevPointsByPid[pid] || 0) : newPoints;
+            const delta = Math.max(0, newPoints - oldPoints);
+            return {
+              pid,
+              name: p.name || `Player ${pid.slice(0, 4)}`,
+              oldPoints,
+              newPoints,
+              delta,
+            };
+          })
+          .filter((p) => p.delta > 0);
+
+        if (!nextRows.length && roundEndReason === "CORRECT") {
+          const fallbackPids = new Set();
+          if (roundEndWinnerPid) fallbackPids.add(roundEndWinnerPid);
+          if (drawerPid) fallbackPids.add(drawerPid);
+          nextRows = [...fallbackPids]
+            .map((pid) => {
+              const matched = players.find((p) => String(p?.pid || "") === pid);
+              if (!matched) return null;
+              const newPoints = Number(matched.points ?? matched.score ?? 0);
+              return {
+                pid,
+                name: matched.name || `Player ${pid.slice(0, 4)}`,
+                oldPoints: Math.max(0, newPoints - 1),
+                newPoints,
+                delta: 1,
+              };
+            })
+            .filter(Boolean);
+        }
+
+        nextRows.sort((a, b) => {
+          if (b.delta !== a.delta) return b.delta - a.delta;
+          return a.name.localeCompare(b.name);
+        });
+        setVotePayoutRows(nextRows);
+        setVoteAnimKey((k) => k + 1);
+        lastVotePayoutKeyRef.current = payoutKey;
+      }
+    } else {
+      setVotePayoutRows([]);
+      lastVotePayoutKeyRef.current = "";
+    }
+
+    prevPointsByPidRef.current = pointsByPidNow;
+  }, [
+    snapshot?.players,
+    isVotingPhase,
+    roomRoundNo,
+    roundEndReason,
+    roundEndWinnerPid,
+    drawerPid,
+  ]);
+
+  useEffect(() => {
+    if (!isVotingPhase) {
+      setVotePayoutActive(false);
+      setVotePayoutShowTotals(false);
+      return;
+    }
+    setVotePayoutActive(false);
+    setVotePayoutShowTotals(false);
+    const t1 = setTimeout(() => setVotePayoutActive(true), VOTE_PAYOUT_SLIDE_DELAY_MS);
+    const t2 = setTimeout(() => setVotePayoutShowTotals(true), VOTE_PAYOUT_TOTALS_DELAY_MS);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isVotingPhase, voteAnimKey]);
+
+  useEffect(() => {
     if (!isVotingPhase) return;
     const voteEndAt = Number(gameSnap?.vote_end_at || 0);
     if (!voteEndAt) {
@@ -665,6 +762,8 @@ const SingleGame = () => {
   }, [isInRound, hasServerTimer, serverTimeLeft, phase, requestSnapshot]);
 
 const MAX_TIME = 60;
+const VOTE_PAYOUT_SLIDE_DELAY_MS = 450;
+const VOTE_PAYOUT_TOTALS_DELAY_MS = 900;
   
   // Game state
   const [gameState, setGameState] = useState({
@@ -1292,22 +1391,22 @@ const MAX_TIME = 60;
   return (
     <div className="game-wrapper">
       {/* Header with Icons */}
-      <header className="top-bar">
+      <header className="top-bar dg-shell-topbar">
         {/* Left: Settings + Data */}
-        <div className="left-group">
+        <div className="left-group dg-left-group">
           {/* Settings Icon */}
-          <button className="icon-btn" onClick={openSettings} title="Settings">
+          <button className="icon-btn dg-icon-btn" onClick={openSettings} title="Settings">
             <svg viewBox="0 0 24 24">
               <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
             </svg>
           </button>
 
-          <div className="data-item">
+          <div className="data-item dg-data-item">
             <span className="data-label">Round</span>
             <span className="data-value">{roomRoundNo}</span>
           </div>
 
-          <div className="data-item">
+          <div className="data-item dg-data-item">
             <span className="data-label">Ink</span>
             <span className="data-value stroke">{strokesUsed}</span>
             <div className="data-bar-bg">
@@ -1323,7 +1422,7 @@ const MAX_TIME = 60;
         </div>
         
         {/* Center: Timer */}
-        <div className="center-group">
+        <div className="center-group dg-center-group">
           {canSeeSecret && secretWord && (
             <div className="secret-pill" style={{ fontSize: 12, opacity: 0.9, marginBottom: 4 }}>
               Word: <b>{secretWord}</b>
@@ -1345,15 +1444,15 @@ const MAX_TIME = 60;
         </div>
         
         {/* Right: Score + Exit */}
-        <div className="right-group">
-          <div className="data-item">
+        <div className="right-group dg-right-group">
+          <div className="data-item dg-data-item">
             <span className="data-label">Score</span>
             <span className="data-value score">{myScore}</span>
           </div>
 
           {/* Exit Icon */}
           <button 
-            className="icon-btn exit-btn" 
+            className="icon-btn dg-icon-btn exit-btn" 
             onClick={openExitMenu} 
             title="Exit / Pause"
             style={{ borderColor: 'var(--red)', color: 'var(--red)' }}
@@ -1368,7 +1467,7 @@ const MAX_TIME = 60;
       {/* Game Container */}
       <div className="game-container">
         
-        <div className="canvas-area">
+        <div className="canvas-area dg-canvas-stage">
           <canvas ref={canvasRef} id="canvasMain" style={!canDraw ? { pointerEvents: 'none' } : undefined}></canvas>
           {showMessage && (
             <div className="overlay-msg" id="gameMsg">
@@ -1377,9 +1476,9 @@ const MAX_TIME = 60;
           )}
         </div>
 
-        <aside className="sidebar">
+        <aside className="sidebar dg-sidebar">
           {isRoleDrawer ? (
-          <div className="panel-card tools-card">
+          <div className="panel-card tools-card dg-panel dg-tools-panel">
             <div className="tools-row">
               <span className="tools-label">Color</span>
               <div className="color-grid">
@@ -1453,7 +1552,7 @@ const MAX_TIME = 60;
             </div>
           </div>
           ) : (
-            <div className="panel-card tools-card">
+            <div className="panel-card tools-card dg-panel dg-tools-panel">
               <div className="tools-row" style={{ justifyContent: 'space-between' }}>
                 <span className="tools-label">Role</span>
                 <span
@@ -1480,7 +1579,7 @@ const MAX_TIME = 60;
             </div>
           )}
 
-          <div className="panel-card chat-card">
+          <div className="panel-card chat-card dg-panel dg-chat-panel">
             <div className="chat-log-container" id="chatLog">
               {chatMessages.map((msg, index) => (
                 <div 
@@ -1529,35 +1628,67 @@ const MAX_TIME = 60;
       {/* Round End Vote Popup */}
       {isVotingPhase && !showExitModal && !showSettingsModal && (
         <div className="modal-overlay active" id="roundEndVoteModal">
-          <div className="modal-card">
+          <div
+            key={`single-vote-${voteAnimKey}`}
+            className="modal-card single-vote-modal-card"
+          >
             <div className="modal-header">
               <h2 className="modal-title">
                 {roundEndWinnerPid ? `${roundEndWinnerName} is correct!` : "TIME'S UP!"}
               </h2>
-              <p style={{ color: 'var(--text-muted)', marginTop: '8px' }}>
+              <p className="single-vote-subtitle">
                 Play next round or stop?
               </p>
-              <p style={{ color: 'var(--text-muted)', marginTop: '8px', fontSize: '12px' }}>
+              <p className="single-vote-meta">
                 {voteRemaining === null
                   ? 'Syncing vote timer...'
                   : voteRemaining > 0
                     ? `Vote ends in: ${voteRemaining}s`
                     : 'Vote window ended. Resolving...'}
               </p>
-              <p style={{ color: 'var(--text-muted)', marginTop: '4px', fontSize: '12px' }}>
-                YES: {effectiveYes} / {effectiveEligible} · Voted: {effectiveVoted} / {effectiveEligible}
+              <p className="single-vote-meta single-vote-meta--stats">
+                YES: {effectiveYes} / {effectiveEligible} - Voted: {effectiveVoted} / {effectiveEligible}
               </p>
             </div>
-            <div className="modal-actions">
+            {votePayoutRows.length > 0 && (
+              <div className="single-vote-payout">
+                <div className="single-vote-payout-title">Points Awarded</div>
+                <div className={`single-vote-payout-chips ${votePayoutActive ? "single-vote-payout-chips--active" : ""}`}>
+                  {votePayoutRows.map((row, idx) => (
+                    <div
+                      key={`${row.pid}-${voteAnimKey}`}
+                      className="single-vote-payout-chip"
+                      style={{ "--single-vote-chip-delay": `${idx * 70}ms` }}
+                    >
+                      <div className="single-vote-payout-chip-top">
+                        <span className="single-vote-payout-name">{row.name}</span>
+                        <span className="single-vote-payout-delta">+{row.delta}</span>
+                      </div>
+                      <div className="single-vote-payout-chip-bottom">
+                        <span className="single-vote-payout-total-label">Total</span>
+                        <span className="single-vote-payout-total">
+                          <span className="single-vote-payout-old">{row.oldPoints}</span>
+                          <span className="single-vote-payout-arrow">{"->"}</span>
+                          <span className={`single-vote-payout-new ${votePayoutShowTotals ? "single-vote-payout-new--on" : ""}`}>
+                            {row.newPoints}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="single-vote-actions">
               <button
-                className="btn-modal btn-resume"
+                className="single-vote-btn single-vote-btn--yes"
                 disabled={hasVoted || (voteRemaining !== null && voteRemaining <= 0)}
                 onClick={() => sendVoteNext('yes')}
               >
                 PLAY NEXT ROUND
               </button>
               <button
-                className="btn-modal btn-exit"
+                className="single-vote-btn single-vote-btn--no"
                 disabled={hasVoted || (voteRemaining !== null && voteRemaining <= 0)}
                 onClick={() => sendVoteNext('no')}
               >
@@ -1565,12 +1696,12 @@ const MAX_TIME = 60;
               </button>
             </div>
             {hasVoted && (
-              <p style={{ color: '#a3e635', marginTop: '10px', textAlign: 'center' }}>
+              <p className="single-vote-status single-vote-status--ok">
                 Vote submitted. Waiting for other players...
               </p>
             )}
             {voteError && (
-              <p style={{ color: '#ff6b81', marginTop: '8px', textAlign: 'center' }}>
+              <p className="single-vote-status single-vote-status--error">
                 {voteError.code}: {voteError.message}
               </p>
             )}

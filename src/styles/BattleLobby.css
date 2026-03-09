@@ -18,7 +18,8 @@
 
 .battle-lobby-body {
   margin: 0;
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
@@ -28,6 +29,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   color: white;
+  padding: max(64px, env(safe-area-inset-top, 0px)) 18px max(18px, env(safe-area-inset-bottom, 0px));
 }
 
 @keyframes gradientMove {
@@ -46,12 +48,13 @@
   border: 1px solid var(--glass-border);
   box-shadow: 0 15px 40px rgba(0,0,0,0.3);
   padding: 25px;
-  width: 90%;
-  max-width: 850px;
+  width: min(100%, 850px);
   display: flex;
   flex-direction: column;
   gap: 25px;
   margin: auto;
+  max-height: calc(100dvh - max(80px, env(safe-area-inset-top, 0px)) - max(20px, env(safe-area-inset-bottom, 0px)));
+  overflow-y: auto;
   animation: cardPop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
@@ -74,6 +77,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--glass-border);
   padding-bottom: 20px;
 }
@@ -128,6 +133,9 @@
 
 .room-display {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .room-label {
@@ -149,7 +157,7 @@
   font-weight: bold;
   letter-spacing: 2px;
   text-transform: uppercase;
-  width: 200px;
+  width: min(220px, 100%);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -271,6 +279,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .player-disconnected {
@@ -379,6 +390,12 @@
   box-shadow: 0 4px 0 #000;
 }
 
+.send-error {
+  color: #ef4444;
+  font-size: 0.88rem;
+  text-align: center;
+}
+
 .start-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -392,8 +409,8 @@
 
 .back-btn {
   position: fixed;
-  top: 20px;
-  left: 20px;
+  top: max(12px, env(safe-area-inset-top, 0px));
+  left: 12px;
   z-index: 50;
   padding: 6px 12px;
   font-size: 1.1rem;
@@ -414,6 +431,108 @@
 }
 
 @media (max-width: 768px) {
+  .battle-lobby-body {
+    padding: max(62px, env(safe-area-inset-top, 0px)) 12px max(14px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .lobby-container {
+    border-radius: 16px;
+    padding: 16px;
+    gap: 16px;
+    max-height: calc(100dvh - max(72px, env(safe-area-inset-top, 0px)) - max(16px, env(safe-area-inset-bottom, 0px)));
+  }
+
+  .lobby-header {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "status count"
+      "room room";
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 14px;
+  }
+
+  .status-badge {
+    grid-area: status;
+    font-size: 0.72rem;
+    padding: 6px 10px;
+    letter-spacing: 0.8px;
+    justify-self: start;
+  }
+
+  .player-count {
+    grid-area: count;
+    justify-self: end;
+    font-size: 0.78rem;
+    padding: 4px 9px;
+  }
+
+  .room-display {
+    grid-area: room;
+    width: 100%;
+    text-align: left;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .room-label {
+    margin-bottom: 0;
+    font-size: 0.68rem;
+  }
+
+  .room-code-input {
+    width: 100%;
+    font-size: 0.95rem;
+    letter-spacing: 1.4px;
+    padding: 10px 12px;
+  }
+
+  .copy-btn {
+    margin-top: 0;
+    width: 100%;
+  }
+
+  .player-list {
+    max-height: min(38vh, 300px);
+  }
+
+  .player-card {
+    padding: 9px 11px;
+    gap: 10px;
+  }
+
+  .player-card:hover {
+    transform: none;
+  }
+
+  .avatar-display {
+    width: 34px;
+    height: 34px;
+    font-size: 0.9rem;
+  }
+
+  .player-name {
+    font-size: 0.92rem;
+  }
+
+  .player-role {
+    font-size: 0.69rem;
+  }
+
+  .waiting-alert {
+    max-width: none;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+  }
+
+  .start-btn {
+    width: 100%;
+    max-width: none;
+    padding: 11px 14px;
+  }
+
   .battle-arena {
     flex-direction: column;
     gap: 30px;
@@ -427,6 +546,24 @@
     z-index: 10;
   }
   .team-side { width: 100%; }
+}
+
+@media (max-width: 420px) {
+  .back-btn {
+    left: 10px;
+    padding: 5px 10px;
+    font-size: 0.96rem;
+  }
+
+  .section-title {
+    font-size: 0.78rem;
+    margin-top: 2px;
+  }
+
+  .mode-badge {
+    font-size: 0.74rem;
+    padding: 5px 10px;
+  }
 }
 
 .debug-panel {

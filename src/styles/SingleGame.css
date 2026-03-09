@@ -25,6 +25,7 @@
 
 .game-wrapper {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
@@ -56,6 +57,8 @@
   z-index: 10;
   flex-shrink: 0;
   box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  position: sticky;
+  top: 0;
 }
 
 /* --- Group Containers --- */
@@ -167,7 +170,7 @@
   display: flex;
   padding: 20px;
   gap: 20px;
-  height: calc(100vh - 80px);
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -222,7 +225,7 @@
   display: flex;
   flex-direction: column;
   gap: 15px;
-  min-width: 300px;
+  min-width: clamp(280px, 30vw, 340px);
 }
 
 .panel-card {
@@ -479,9 +482,217 @@
   color: white;
 }
 
+.single-vote-modal-card {
+  max-width: 420px;
+  animation: singleVoteModalPopIn 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.single-vote-payout {
+  margin: -6px 0 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.58);
+  padding: 10px;
+}
+
+.single-vote-payout-title {
+  font-family: "Bitcount Single", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  font-size: 0.7rem;
+  color: #cbd5e1;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.single-vote-payout-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.single-vote-payout-chip {
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(15, 23, 42, 0.66);
+  padding: 8px 9px;
+  opacity: 0;
+  transform: translateY(-14px) scale(0.97);
+}
+
+.single-vote-payout-chips--active .single-vote-payout-chip {
+  animation: singleVotePayoutSlide 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--single-vote-chip-delay, 0ms);
+}
+
+.single-vote-payout-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.single-vote-payout-name {
+  font-weight: 900;
+  font-size: 0.82rem;
+  color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.single-vote-payout-delta {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.74rem;
+  color: #86efac;
+}
+
+.single-vote-payout-chip-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.single-vote-payout-total-label {
+  font-size: 0.67rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #94a3b8;
+  font-weight: 800;
+}
+
+.single-vote-payout-total {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.74rem;
+  color: #e2e8f0;
+  font-weight: 900;
+}
+
+.single-vote-payout-old {
+  color: #94a3b8;
+}
+
+.single-vote-payout-arrow {
+  margin: 0 6px;
+  color: #64748b;
+}
+
+.single-vote-payout-new {
+  display: inline-block;
+  min-width: 1ch;
+  opacity: 0.3;
+  color: #cbd5e1;
+  transform: translateY(-2px) scale(0.95);
+  transition: transform 220ms ease, opacity 220ms ease, color 220ms ease;
+}
+
+.single-vote-payout-new--on {
+  color: #86efac;
+  opacity: 1;
+  transform: translateY(0) scale(1.05);
+}
+
+.single-vote-subtitle {
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.single-vote-meta {
+  color: var(--text-muted);
+  margin-top: 8px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.single-vote-meta--stats {
+  margin-top: 4px;
+}
+
+.single-vote-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.single-vote-btn {
+  border-radius: 12px;
+  border: none;
+  padding: 11px 10px;
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.single-vote-btn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.single-vote-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.single-vote-btn--yes {
+  background: #22c55e;
+  box-shadow: 0 4px 0 #15803d;
+}
+
+.single-vote-btn--no {
+  background: #ef4444;
+  box-shadow: 0 4px 0 #b91c1c;
+}
+
+.single-vote-status {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.single-vote-status--ok {
+  color: #a3e635;
+}
+
+.single-vote-status--error {
+  color: #fb7185;
+}
+
 .modal-header {
   text-align: center;
   margin-bottom: 25px;
+}
+
+@keyframes singleVoteModalPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes singleVotePayoutSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.97);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .modal-title {
@@ -682,32 +893,123 @@ input:checked + .slider:before {
   background: rgba(255, 255, 255, 0.3);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .single-vote-modal-card {
+    animation: none;
+  }
+
+  .single-vote-payout-chip {
+    opacity: 1;
+    transform: none;
+  }
+
+  .single-vote-payout-chips--active .single-vote-payout-chip {
+    animation: none;
+  }
+
+  .single-vote-payout-new {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* Responsive */
-@media (max-width: 800px) {
+@media (max-width: 900px) {
+  .top-bar {
+    height: auto;
+    min-height: 78px;
+    padding: max(8px, env(safe-area-inset-top, 0px)) 14px 8px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "left right"
+      "center center";
+    gap: 8px;
+    align-items: start;
+  }
+
+  .left-group {
+    grid-area: left;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .right-group {
+    grid-area: right;
+    gap: 12px;
+  }
+
+  .center-group {
+    grid-area: center;
+  }
+
+  .timer-box {
+    font-size: clamp(1.5rem, 7vw, 2rem);
+  }
+
   .game-container {
     flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     overflow-y: auto;
     height: auto;
   }
   
   .canvas-area {
-    min-height: 40vh;
+    min-height: min(48svh, 460px);
   }
   
   .sidebar {
     min-width: 100%;
+    width: 100%;
   }
-  
+}
+
+@media (max-width: 640px) {
   .top-bar {
-    padding: 0 20px;
+    padding-inline: 10px;
   }
-  
-  .left-group, .right-group {
-    gap: 15px;
-  }
-  
-  .data-bar-bg {
+
+  .icon-btn {
     width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+
+  .icon-btn svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .left-group,
+  .right-group {
+    gap: 8px;
+  }
+
+  .data-item {
+    gap: 1px;
+  }
+
+  .data-label {
+    font-size: 0.58rem;
+  }
+
+  .data-value {
+    font-size: 0.95rem;
+  }
+
+  .data-bar-bg {
+    width: 38px;
+  }
+
+  .canvas-area {
+    min-height: 320px;
+  }
+
+  .tools-card {
+    padding: 14px;
   }
 
   .color-grid {
@@ -737,6 +1039,19 @@ input:checked + .slider:before {
 
   .tools-label {
     align-self: flex-start;
+  }
+
+  .input-area {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .send-btn {
+    padding: 0 14px;
+  }
+
+  .single-vote-actions {
+    grid-template-columns: 1fr;
   }
 }
 

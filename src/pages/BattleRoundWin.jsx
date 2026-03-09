@@ -4,6 +4,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useRoomWSContext } from "../ws/RoomWSContext";
 import '../styles/BattleRoundWin.css';
 
+const VOTE_PAYOUT_SLIDE_DELAY_MS = 450;
+const VOTE_TOTALS_SHOW_DELAY_MS = 900;
+
 const BattleRoundWin = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -108,8 +111,8 @@ const BattleRoundWin = () => {
       if (dy > 0) setPayoutFromY(-Math.round(dy));
     });
 
-    const t1 = setTimeout(() => setPayoutActive(true), 650);
-    const t2 = setTimeout(() => setPayoutShowTotals(true), 1150);
+    const t1 = setTimeout(() => setPayoutActive(true), VOTE_PAYOUT_SLIDE_DELAY_MS);
+    const t2 = setTimeout(() => setPayoutShowTotals(true), VOTE_TOTALS_SHOW_DELAY_MS);
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(t1);
@@ -339,60 +342,36 @@ const BattleRoundWin = () => {
         )}
 
         {canVote ? (
-          <div className="timer-container">
-            <div className="timer-text" style={{ marginBottom: '10px' }}>Vote for next game</div>
-            <div className="timer-text" style={{ marginBottom: '6px' }}>
+          <div className="result-vote">
+            <div className="result-vote-title">Vote for next game</div>
+            <div className="result-vote-meta">
               {voteRemaining === null
-                ? "Syncing..."
+                ? "Syncing vote timer..."
                 : voteRemaining > 0
                 ? `Vote ends in: ${voteRemaining}s`
                 : "Vote window ended. Resolving..."}
             </div>
-            <div className="timer-text" style={{ marginBottom: '10px', opacity: 0.85 }}>
-              YES: {effectiveYes} / {effectiveEligible} (missing votes count as NO) · Voted: {effectiveVoted} / {effectiveEligible}
+            <div className="result-vote-meta result-vote-meta--stats">
+              YES: {effectiveYes} / {effectiveEligible} - Voted: {effectiveVoted} / {effectiveEligible}
             </div>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            <div className="result-vote-actions">
               <button
+                className="result-vote-btn result-vote-btn--yes"
                 onClick={() => submitVote('yes')}
                 disabled={voted || (voteRemaining !== null && voteRemaining <= 0)}
-                style={{
-                  background: '#2ed573',
-                  color: 'white',
-                  padding: '10px 20px',
-                  borderRadius: '50px',
-                  fontFamily: 'Bitcount Single, monospace',
-                  fontSize: '0.9rem',
-                  fontWeight: 'bold',
-                  cursor: voted ? 'default' : 'pointer',
-                  border: '2px solid white',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                }}
               >
-                Vote YES
+                PLAY NEXT ROUND
               </button>
               <button
+                className="result-vote-btn result-vote-btn--no"
                 onClick={() => submitVote('no')}
                 disabled={voted || (voteRemaining !== null && voteRemaining <= 0)}
-                style={{
-                  background: '#ff4757',
-                  color: 'white',
-                  padding: '10px 20px',
-                  borderRadius: '50px',
-                  fontFamily: 'Bitcount Single, monospace',
-                  fontSize: '0.9rem',
-                  fontWeight: 'bold',
-                  cursor: voted ? 'default' : 'pointer',
-                  border: '2px solid white',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                }}
               >
-                Vote NO
+                STOP
               </button>
             </div>
-            {voted && <div className="timer-text" style={{ marginTop: '10px' }}>Vote sent. Waiting for others...</div>}
-            {lastError && <div className="timer-text" style={{ marginTop: '8px', color: '#ff6b81' }}>{lastError.code}: {lastError.message}</div>}
+            {voted && <div className="result-vote-status result-vote-status--ok">Vote sent. Waiting for others...</div>}
+            {lastError && <div className="result-vote-status result-vote-status--error">{lastError.code}: {lastError.message}</div>}
           </div>
         ) : null}
       </div>
@@ -448,3 +427,4 @@ const BattleRoundWin = () => {
 };
 
 export default BattleRoundWin;
+

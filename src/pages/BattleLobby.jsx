@@ -15,7 +15,8 @@ const BattleLobby = () => {
   const disconnectedPlayers = players.filter((p) => p.connected === false);
   const playerCount = connectedPlayers.length;
   const maxPlayers = room.cap || 0;
-  const canStart = playerCount >= 5;
+  const hasMinPlayers = playerCount >= 5;
+  const canStart = hasMinPlayers && room.state === "WAITING";
   const [rolePickSent, setRolePickSent] = useState(false);
   const [sendError, setSendError] = useState("");
 
@@ -147,13 +148,19 @@ const BattleLobby = () => {
         <div className="action-area">
           <div className="waiting-alert">
             <span className="waiting-icon">{"\u23F3"}</span>
-            {canStart
-              ? "Ready to start. Anyone can begin role pick."
-              : "Need at least 5 players to start."}
+            {!hasMinPlayers
+              ? "Need at least 5 players to start."
+              : room.state !== "WAITING"
+              ? `Waiting for room reset... (state: ${room.state || "unknown"})`
+              : "Ready to start. Anyone can begin role pick."}
           </div>
           <button
             className="start-btn"
             onClick={() => {
+              if (room.state !== "WAITING") {
+                setSendError(`Cannot start yet. Current state: ${room.state || "unknown"}`);
+                return;
+              }
               const ok = ws.send({ type: "start_role_pick" });
               if (!ok) setSendError("WebSocket not connected");
             }}
@@ -162,7 +169,7 @@ const BattleLobby = () => {
             Start Game
           </button>
           {sendError && (
-            <div className="send-error" style={{ color: "#ef4444", marginTop: "8px" }}>
+            <div className="send-error">
               {sendError}
             </div>
           )}

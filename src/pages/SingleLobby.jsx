@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import "../styles/SingleLobby.css";
+import { useNavigate } from "react-router-dom";
+import "../styles/BattleLobby.css";
 import { useRoomWSContext } from "../ws/RoomWSContext";
 
 const traceFlow = (event, payload = {}) => {
@@ -28,9 +28,11 @@ const SingleLobby = () => {
   const [rolePickSent, setRolePickSent] = useState(false);
   const [sendError, setSendError] = useState("");
 
-  const copyCode = () => {
+  const copyRoomCode = async () => {
     if (!roomCode || roomCode === "----") return;
-    navigator.clipboard.writeText(roomCode);
+    try {
+      await navigator.clipboard.writeText(roomCode);
+    } catch {}
   };
 
   useEffect(() => {
@@ -43,6 +45,16 @@ const SingleLobby = () => {
       });
       setRolePickSent(true);
       navigate("/role-pick");
+      return;
+    }
+    if (room.state === "CONFIG") {
+      traceFlow("navigate", {
+        source: "snapshot_state",
+        roomState: room.state,
+        to: "/waiting-room",
+      });
+      setRolePickSent(true);
+      navigate("/waiting-room");
     }
   }, [room.state, rolePickSent, navigate]);
 
@@ -62,142 +74,134 @@ const SingleLobby = () => {
     return () => clearInterval(id);
   }, [ws.status, ws.roomCode, ws.send]);
 
+  const handleBack = () => {
+    navigate("/select-mode");
+  };
+
   return (
-    <div className="lobby-body">
-      <Link to="/select-mode" className="back-btn">
-        ←
-      </Link>
+    <div className="battle-lobby-body">
+      <button onClick={handleBack} className="back-btn">
+        {"\u2190"}
+      </button>
 
-      <div className="lobby-frame">
-        <div className="page-label">WAITING ROOM</div>
-
+      <div className="lobby-container">
         <div className="lobby-header">
-          <div className="room-code-box" onClick={copyCode}>
-            <span className="code-label">CODE</span>
-            <span className="code-value">{roomCode}</span>
+          <div className="status-badge">Waiting Room</div>
+          <div className="room-display">
+            <div className="room-label">ROOM CODE</div>
+            <input
+              type="text"
+              className="room-code-input"
+              value={roomCode}
+              readOnly
+              onClick={copyRoomCode}
+            />
+            <button className="copy-btn" onClick={copyRoomCode} aria-label="Copy room code">
+              {"\uD83D\uDCCB"}
+            </button>
           </div>
-          <button className="copy-btn" onClick={copyCode} aria-label="Copy room code">
-            {"\uD83D\uDCCB"}
-          </button>
-
           <div className="player-count">
-            <span>👥</span>
+            <span>{"\u{1F465}"}</span>
             <span>
               {playerCount} / {maxPlayers || "?"}
             </span>
           </div>
         </div>
 
-        <div>
-          <div className="section-title">
-            <svg viewBox="0 0 24 24">
-              <path
-                d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
-                fill="white"
-              />
-            </svg>
-            PLAYERS
-          </div>
-
-          <div className="player-list">
-            {connectedPlayers.length === 0 ? (
-              <div className="player-card">Waiting for players...</div>
-            ) : (
-              connectedPlayers.map((player) => (
-                <div
-                  key={player.pid}
-                  className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
-                >
-                  <div className="avatar">
-                    {room.gm_pid === player.pid && <span className="crown">👑</span>}
-                    {(player.name || "?")[0]?.toUpperCase()}
-                  </div>
+        <div className="section-title">PLAYERS</div>
+        <div className="player-list">
+          {connectedPlayers.length === 0 ? (
+            <div className="player-card" style={{ opacity: 0.6 }}>
+              Waiting for players...
+            </div>
+          ) : (
+            connectedPlayers.map((player) => (
+              <div
+                key={player.pid}
+                className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
+              >
+                <div className="avatar-display" style={{ background: "#f97316" }}>
+                  {(player.name || "?")[0]?.toUpperCase()}
+                </div>
+                <div className="player-info">
                   <span className="player-name">
                     {player.name || "Unknown"}
                     {room.gm_pid === player.pid && <span className="gm-tag"> GM</span>}
                   </span>
+                  <span className="player-role">
+                    {room.gm_pid === player.pid ? "GM" : "Player"}
+                  </span>
                 </div>
-              ))
-            )}
-          </div>
+              </div>
+            ))
+          )}
+        </div>
 
-          {disconnectedPlayers.length > 0 && (
-            <details className="player-disconnected" style={{ marginTop: 10 }}>
-              <summary>Disconnected ({disconnectedPlayers.length})</summary>
-              <div className="player-list" style={{ marginTop: 10 }}>
-                {disconnectedPlayers.map((player) => (
-                  <div
-                    key={player.pid}
-                    className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
-                    style={{ opacity: 0.45, filter: "grayscale(0.6)" }}
-                  >
-                    <div className="avatar" style={{ background: "#64748b" }}>
-                      {(player.name || "?")[0]?.toUpperCase()}
-                    </div>
+        {disconnectedPlayers.length > 0 && (
+          <details className="player-disconnected">
+            <summary>Disconnected ({disconnectedPlayers.length})</summary>
+            <div className="player-list" style={{ marginTop: 10 }}>
+              {disconnectedPlayers.map((player) => (
+                <div
+                  key={player.pid}
+                  className={`player-card ${room.gm_pid === player.pid ? "host" : ""}`}
+                  style={{ opacity: 0.45, filter: "grayscale(0.6)" }}
+                >
+                  <div className="avatar-display" style={{ background: "#64748b" }}>
+                    {(player.name || "?")[0]?.toUpperCase()}
+                  </div>
+                  <div className="player-info">
                     <span className="player-name">
                       {player.name || "Unknown"}
                       <span className="gm-tag" style={{ marginLeft: 8, opacity: 0.9 }}>
                         OFFLINE
                       </span>
                     </span>
+                    <span className="player-role">Disconnected</span>
                   </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
 
-        <div>
-          <div className="section-title">
-            <svg viewBox="0 0 24 24">
-              <path
-                d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"
-                fill="white"
-              />
-            </svg>
-            MODE
-          </div>
-          <div className="mode-badge">
-            <span>SINGLE</span>
-          </div>
-        </div>
+        <div className="section-title">MODE</div>
+        <div className="mode-badge">SINGLE</div>
 
-        <div className="status-bar">
-          <div className="pulse-dot"></div>
-          <span>
+        <div className="action-area">
+          <div className="waiting-alert">
+            <span className="waiting-icon">{"\u23F3"}</span>
             {!hasMinPlayers
               ? "Need at least 3 players to start."
               : room.state !== "WAITING"
-                ? `Waiting for room reset... (state: ${room.state || "unknown"})`
-                : "Ready to start. Anyone can begin role pick."}
-          </span>
-        </div>
-
-        <button
-          className="start-btn"
-          onClick={() => {
-            if (room.state !== "WAITING") {
-              setSendError(`Cannot start yet. Current state: ${room.state || "unknown"}`);
-              return;
-            }
-            traceFlow("start_role_pick_send", {
-              roomState: room.state || null,
-              playerCount,
-              hasMinPlayers,
-            });
-            const ok = ws.send({ type: "start_role_pick" });
-            if (!ok) setSendError("WebSocket not connected");
-          }}
-          disabled={!canStart}
-        >
-          Start Game
-        </button>
-        {sendError && (
-          <div className="send-error" style={{ color: "#ef4444", marginTop: "8px" }}>
-            {sendError}
+              ? `Waiting for room reset... (state: ${room.state || "unknown"})`
+              : "Ready to start. Anyone can begin role pick."}
           </div>
-        )}
-
+          <button
+            className="start-btn"
+            onClick={() => {
+              if (room.state !== "WAITING") {
+                setSendError(`Cannot start yet. Current state: ${room.state || "unknown"}`);
+                return;
+              }
+              traceFlow("start_role_pick_send", {
+                roomState: room.state || null,
+                playerCount,
+                hasMinPlayers,
+              });
+              const ok = ws.send({ type: "start_role_pick" });
+              if (!ok) setSendError("WebSocket not connected");
+            }}
+            disabled={!canStart}
+          >
+            Start Game
+          </button>
+          {sendError && (
+            <div className="send-error">
+              {sendError}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

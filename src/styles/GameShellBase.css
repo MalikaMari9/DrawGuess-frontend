@@ -1,0 +1,135 @@
+/* Shared game-shell visuals for SINGLE + VS pages */
+
+:root {
+  --dg-shell-bg: rgba(15, 23, 42, 0.82);
+  --dg-shell-panel-bg: rgba(15, 23, 42, 0.7);
+  --dg-shell-border: rgba(255, 255, 255, 0.12);
+  --dg-shell-text: #f8fafc;
+  --dg-shell-muted: #94a3b8;
+  --dg-shell-accent: #6d4aff;
+  --dg-shell-accent-2: #f97316;
+}
+
+.dg-shell-topbar {
+  height: 76px;
+  background: var(--dg-shell-bg);
+  border-bottom: 1px solid var(--dg-shell-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+}
+
+.dg-shell-topbar .top-left,
+.dg-shell-topbar .dg-left-group,
+.dg-shell-topbar .dg-right-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dg-shell-topbar .icon-btn,
+.dg-shell-topbar .top-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--dg-shell-border);
+  color: var(--dg-shell-text);
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+
+.dg-shell-topbar .top-btn {
+  padding: 8px 12px;
+  font-family: "Bitcount Single", monospace;
+  letter-spacing: 0.4px;
+}
+
+.dg-shell-topbar .icon-btn:hover,
+.dg-shell-topbar .top-btn:hover {
+  border-color: rgba(109, 74, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(109, 74, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.dg-shell-topbar .round-info {
+  color: var(--dg-shell-text);
+  text-shadow: none;
+}
+
+.dg-shell-topbar .data-label,
+.dg-shell-topbar .you-role,
+.dg-shell-topbar .you-info {
+  color: var(--dg-shell-muted);
+}
+
+.dg-shell-topbar .data-value,
+.dg-shell-topbar .score-display,
+.dg-shell-topbar .you-name {
+  color: var(--dg-shell-text);
+}
+
+.dg-shell-topbar .timer-box {
+  color: var(--dg-shell-accent-2);
+  text-shadow: 0 0 14px rgba(249, 115, 22, 0.22);
+}
+
+.dg-panel {
+  background: var(--dg-shell-panel-bg);
+  border: 1px solid var(--dg-shell-border);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.2);
+}
+
+.dg-tools-panel.tools-card {
+  padding: 18px;
+}
+
+.dg-tools-panel.tools-sidebar {
+  background: rgba(15, 23, 42, 0.64);
+  border-right: 1px solid var(--dg-shell-border);
+}
+
+.dg-chat-panel.chat-card,
+.dg-chat-panel.chat-main {
+  background: rgba(15, 23, 42, 0.54);
+}
+
+.dg-chat-panel .chat-log-container {
+  background: rgba(2, 6, 23, 0.4);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dg-chat-panel .msg {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.dg-canvas-stage {
+  background-color: rgba(15, 23, 42, 0.38);
+  background-image: radial-gradient(rgba(148, 163, 184, 0.45) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-position: center;
+}
+
+/* Page-specific selectors to beat local defaults in both modes */
+.battle-game-body .canvas-wrapper.dg-canvas-stage,
+.game-wrapper .canvas-area.dg-canvas-stage {
+  background-color: rgba(15, 23, 42, 0.38);
+  background-image: radial-gradient(rgba(148, 163, 184, 0.45) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-position: center;
+}
+
+.dg-canvas-stage canvas {
+  background: #ffffff;
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+@media (max-width: 900px) {
+  .dg-shell-topbar {
+    height: auto;
+    min-height: 68px;
+  }
+}

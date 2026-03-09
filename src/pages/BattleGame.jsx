@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRoomWSContext } from "../ws/RoomWSContext";
 import '../styles/BattleGame.css';
+import '../styles/GameShellBase.css';
 
 const LOGICAL_CANVAS_W = 1024;
 const LOGICAL_CANVAS_H = 768;
@@ -139,6 +140,19 @@ const BattleGame = () => {
   const [team1Input, setTeam1Input] = useState('');
   const [team2Input, setTeam2Input] = useState('');
   const [hasGuessedThisPhase, setHasGuessedThisPhase] = useState(false);
+  const [mobileTeamView, setMobileTeamView] = useState(() => (myTeam === "B" ? "B" : "A"));
+
+  const ownerTeam = myTeam === "A" || myTeam === "B" ? myTeam : null;
+  const drawTargetTeam = phase === "DRAW" ? (canDrawA ? "A" : canDrawB ? "B" : null) : null;
+  const guessTargetTeam =
+    phase === "GUESS"
+      ? canGuessA && !hasGuessedThisPhase
+        ? "A"
+        : canGuessB && !hasGuessedThisPhase
+        ? "B"
+        : null
+      : null;
+  const activeTargetTeam = drawTargetTeam || guessTargetTeam;
 
   // Modal states
   const [exitModalOpen, setExitModalOpen] = useState(false);
@@ -180,6 +194,7 @@ const BattleGame = () => {
   const sabotageArmed1Ref = useRef(false);
   const sabotageArmed2Ref = useRef(false);
   const [lastError, setLastError] = useState(null);
+  const [focusPulse, setFocusPulse] = useState(false);
 
   // Initialize canvases
   useEffect(() => {
@@ -217,6 +232,35 @@ const BattleGame = () => {
   useEffect(() => {
     if (teamAlreadyGuessed) setHasGuessedThisPhase(true);
   }, [teamAlreadyGuessed]);
+
+  useEffect(() => {
+    if (!ownerTeam || !activeTargetTeam || ownerTeam !== activeTargetTeam) {
+      setFocusPulse(false);
+      return;
+    }
+
+    setFocusPulse(true);
+    const id = setTimeout(() => setFocusPulse(false), 5000);
+    return () => clearTimeout(id);
+  }, [ownerTeam, activeTargetTeam, room.round_no]);
+
+  useEffect(() => {
+    if (myTeam === "A" || myTeam === "B") {
+      setMobileTeamView(myTeam);
+    }
+  }, [myTeam]);
+
+  useEffect(() => {
+    if (!activeTargetTeam) return;
+    setMobileTeamView(activeTargetTeam);
+  }, [activeTargetTeam, room.round_no, phase]);
+
+  useEffect(() => {
+    const id = setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 0);
+    return () => clearTimeout(id);
+  }, [mobileTeamView]);
 
   useEffect(() => {
     if (phaseTimeLeft > 0) {
@@ -1274,6 +1318,30 @@ const BattleGame = () => {
     setSettingsModalOpen(false);
   };
 
+  const focusMobileTeam = (team) => {
+    setMobileTeamView(team === "B" ? "B" : "A");
+  };
+
+  const handleMobileColumnKeyDown = (team, event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      focusMobileTeam(team);
+    }
+  };
+
+  const isOwnerA = ownerTeam === "A";
+  const isOwnerB = ownerTeam === "B";
+  const focusCanvasA = isOwnerA && phase === "DRAW" && canDrawA;
+  const focusCanvasB = isOwnerB && phase === "DRAW" && canDrawB;
+  const focusChatA = isOwnerA && phase === "GUESS" && canGuessA && !hasGuessedThisPhase;
+  const focusChatB = isOwnerB && phase === "GUESS" && canGuessB && !hasGuessedThisPhase;
+  const focusHintA = focusCanvasA ? "DRAW HERE" : focusChatA ? "GUESS HERE" : "";
+  const focusHintB = focusCanvasB ? "DRAW HERE" : focusChatB ? "GUESS HERE" : "";
+  const pulseA = focusPulse && (focusCanvasA || focusChatA);
+  const pulseB = focusPulse && (focusCanvasB || focusChatB);
+  const mobileActiveA = mobileTeamView === "A";
+  const mobileActiveB = mobileTeamView === "B";
+
   return (
     <div className="battle-game-body">
       {transitionActive && (
@@ -1304,8 +1372,8 @@ const BattleGame = () => {
         </div>
       )}
       {/* Top Bar */}
-      <div className="top-bar">
-        <div style={{ display: 'flex', gap: '10px' }}>
+      <div className="top-bar dg-shell-topbar">
+        <div className="top-left dg-left-group">
           <button className="top-btn" onClick={() => openModal('settingsModal')}>
             ⚙️ Settings
           </button>
@@ -1316,7 +1384,7 @@ const BattleGame = () => {
 
         <div className="round-info">ROUND {round}</div>
 
-        <div className="top-right">
+        <div className="top-right dg-right-group">
           <div
             className="score-display"
             style={{
@@ -1346,8 +1414,45 @@ const BattleGame = () => {
 
       {/* Game Container */}
       <div className="game-container">
+        <div className="mobile-team-switch" role="tablist" aria-label="Team panel switch">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileActiveA}
+            className={`mobile-team-tab tab-red ${mobileActiveA ? "active" : ""}`}
+            onClick={() => focusMobileTeam("A")}
+          >
+            <span className="mobile-team-tab-name">{redTeam.name}</span>
+            <span className="mobile-team-tab-meta">
+              {redScore} pts {activeTargetTeam === "A" ? "• ACTIVE" : ""}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileActiveB}
+            className={`mobile-team-tab tab-blue ${mobileActiveB ? "active" : ""}`}
+            onClick={() => focusMobileTeam("B")}
+          >
+            <span className="mobile-team-tab-name">{blueTeam.name}</span>
+            <span className="mobile-team-tab-meta">
+              {blueScore} pts {activeTargetTeam === "B" ? "• ACTIVE" : ""}
+            </span>
+          </button>
+        </div>
+
         {/* TEAM 1 (RED) */}
-        <div className="team-column" id="col1">
+        <div
+          className={`team-column ${
+            isOwnerA ? "owner owner-a" : ownerTeam ? "owner-dim" : ""
+          } ${mobileActiveA ? "mobile-active" : "mobile-collapsed"}`}
+          id="col1"
+          onClick={!mobileActiveA ? () => focusMobileTeam("A") : undefined}
+          onKeyDown={!mobileActiveA ? (event) => handleMobileColumnKeyDown("A", event) : undefined}
+          role={!mobileActiveA ? "button" : undefined}
+          tabIndex={!mobileActiveA ? 0 : undefined}
+          aria-label={!mobileActiveA ? "Focus Red Team panel" : undefined}
+        >
           {/* Header */}
           <div className="team-header header-red">
             {isDrawerA && secretWord && <div className="secret-word">Secret: {secretWord}</div>}
@@ -1374,10 +1479,20 @@ const BattleGame = () => {
                 </span>
               </div>
             </div>
+            {focusHintA && (
+              <div className={`focus-hint focus-red ${pulseA ? "focus-pulse" : ""}`}>
+                {focusHintA}
+              </div>
+            )}
+            <div className="mobile-collapsed-hint">Tap to focus this team</div>
           </div>
 
           {/* Canvas */}
-          <div className={`canvas-wrapper ${canDrawA ? "can-draw" : ""}`}>
+          <div
+            className={`canvas-wrapper dg-canvas-stage ${canDrawA ? "can-draw" : ""} ${
+              focusCanvasA ? `focus-target focus-red ${pulseA ? "focus-pulse" : ""}` : ""
+            }`}
+          >
             <canvas ref={canvas1Ref} id="c1"></canvas>
           </div>
 
@@ -1385,7 +1500,7 @@ const BattleGame = () => {
           <div className="bottom-split">
             {/* Tools Sidebar */}
             {isDrawerA && (
-            <div className="tools-sidebar">
+            <div className="tools-sidebar dg-panel dg-tools-panel">
               {/* Sabotage Button */}
                 <div
                   id="sab1"
@@ -1493,7 +1608,11 @@ const BattleGame = () => {
             )}
 
             {/* Chat Main */}
-            <div className="chat-main">
+            <div
+              className={`chat-main dg-panel dg-chat-panel ${
+                focusChatA ? `focus-target focus-red ${pulseA ? "focus-pulse" : ""}` : ""
+              }`}
+            >
               <div className="chat-log-container" id="log1">
                 {team1Messages.map((msg, index) => (
                   <div key={index} className={`msg ${msg.isOwn ? 'right' : ''} ${msg.kind ? `msg--${msg.kind}` : ''}`}>
@@ -1523,7 +1642,17 @@ const BattleGame = () => {
         </div>
 
         {/* TEAM 2 (BLUE) */}
-        <div className="team-column" id="col2">
+        <div
+          className={`team-column ${
+            isOwnerB ? "owner owner-b" : ownerTeam ? "owner-dim" : ""
+          } ${mobileActiveB ? "mobile-active" : "mobile-collapsed"}`}
+          id="col2"
+          onClick={!mobileActiveB ? () => focusMobileTeam("B") : undefined}
+          onKeyDown={!mobileActiveB ? (event) => handleMobileColumnKeyDown("B", event) : undefined}
+          role={!mobileActiveB ? "button" : undefined}
+          tabIndex={!mobileActiveB ? 0 : undefined}
+          aria-label={!mobileActiveB ? "Focus Blue Team panel" : undefined}
+        >
           {/* Header */}
           <div className="team-header header-blue">
             {isDrawerB && secretWord && <div className="secret-word">Secret: {secretWord}</div>}
@@ -1550,10 +1679,20 @@ const BattleGame = () => {
                 </span>
               </div>
             </div>
+            {focusHintB && (
+              <div className={`focus-hint focus-blue ${pulseB ? "focus-pulse" : ""}`}>
+                {focusHintB}
+              </div>
+            )}
+            <div className="mobile-collapsed-hint">Tap to focus this team</div>
           </div>
 
           {/* Canvas */}
-          <div className={`canvas-wrapper ${canDrawB ? "can-draw" : ""}`}>
+          <div
+            className={`canvas-wrapper dg-canvas-stage ${canDrawB ? "can-draw" : ""} ${
+              focusCanvasB ? `focus-target focus-blue ${pulseB ? "focus-pulse" : ""}` : ""
+            }`}
+          >
             <canvas ref={canvas2Ref} id="c2"></canvas>
           </div>
 
@@ -1561,7 +1700,7 @@ const BattleGame = () => {
           <div className="bottom-split">
             {/* Tools Sidebar */}
             {isDrawerB && (
-            <div className="tools-sidebar">
+            <div className="tools-sidebar dg-panel dg-tools-panel">
               {/* Sabotage Button */}
                 <div
                   id="sab2"
@@ -1669,7 +1808,11 @@ const BattleGame = () => {
             )}
 
             {/* Chat Main */}
-            <div className="chat-main">
+            <div
+              className={`chat-main dg-panel dg-chat-panel ${
+                focusChatB ? `focus-target focus-blue ${pulseB ? "focus-pulse" : ""}` : ""
+              }`}
+            >
               <div className="chat-log-container" id="log2">
                 {team2Messages.map((msg, index) => (
                   <div key={index} className={`msg ${msg.isOwn ? 'right' : ''} ${msg.kind ? `msg--${msg.kind}` : ''}`}>

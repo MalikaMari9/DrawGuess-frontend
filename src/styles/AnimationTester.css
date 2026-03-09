@@ -68,6 +68,396 @@
   gap: 16px;
 }
 
+.anim-vote-controls {
+  margin: 6px 0 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.anim-vote-controls-title {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #e2e8f0;
+  margin-bottom: 10px;
+}
+
+.anim-vote-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.anim-vote-field {
+  display: grid;
+  gap: 6px;
+}
+
+.anim-vote-field span {
+  font-size: 0.68rem;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.anim-vote-field input,
+.anim-vote-field select {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  color: #f8fafc;
+  padding: 8px 10px;
+  font-size: 0.84rem;
+  font-family: "Lato", sans-serif;
+}
+
+.anim-vote-field input:focus,
+.anim-vote-field select:focus {
+  outline: none;
+  border-color: rgba(109, 74, 255, 0.85);
+  box-shadow: 0 0 0 2px rgba(109, 74, 255, 0.18);
+}
+
+.anim-vote-toggles {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.anim-vote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.anim-vote-panel {
+  min-height: 360px;
+}
+
+.vote-sbx-surface {
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  background: rgba(2, 6, 23, 0.55);
+  min-height: 300px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vote-sbx-modal-card {
+  width: min(100%, 380px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 42px rgba(0, 0, 0, 0.35);
+  padding: 18px;
+  background: rgba(30, 41, 59, 0.96);
+  color: #f8fafc;
+}
+
+.vote-sbx-card--pop {
+  animation: voteSbxPopIn 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.vote-sbx-modal-card--single {
+  max-width: 360px;
+}
+
+.vote-sbx-modal-header {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.vote-sbx-team-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.vote-sbx-team-row--compact {
+  margin: 0 auto 10px;
+}
+
+.vote-sbx-team-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.65px;
+  text-transform: uppercase;
+}
+
+.vote-sbx-team-badge--red {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+}
+
+.vote-sbx-team-badge--blue {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #bfdbfe;
+}
+
+.vote-sbx-team-badge--neutral {
+  background: rgba(148, 163, 184, 0.16);
+  border-color: rgba(148, 163, 184, 0.36);
+  color: #e2e8f0;
+}
+
+.vote-sbx-team-badge--self {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #f8fafc;
+}
+
+.vote-sbx-title {
+  margin: 0;
+  font-family: "Bitcount Single", monospace;
+  font-size: 1.2rem;
+  letter-spacing: 0.6px;
+}
+
+.vote-sbx-subtitle {
+  margin: 8px 0 4px;
+  color: #cbd5e1;
+  font-size: 0.86rem;
+}
+
+.vote-sbx-meta {
+  margin: 2px 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.vote-sbx-meta--stats {
+  margin-top: 4px;
+}
+
+.vote-sbx-payout {
+  margin-top: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.55);
+  padding: 10px;
+}
+
+.vote-sbx-payout--compact {
+  margin-top: 0;
+}
+
+.vote-sbx-payout-title {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #cbd5e1;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.vote-sbx-payout-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.vote-sbx-payout-chip {
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(15, 23, 42, 0.64);
+  padding: 8px 9px;
+  opacity: 0;
+  transform: translateY(-16px) scale(0.97);
+}
+
+.vote-sbx-payout-chips--active .vote-sbx-payout-chip {
+  animation: voteSbxChipSlide 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--vote-sbx-chip-delay, 0ms);
+}
+
+.vote-sbx-payout-chip--winner {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.vote-sbx-payout-name {
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: #f8fafc;
+  margin-bottom: 4px;
+}
+
+.vote-sbx-payout-total {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+}
+
+.vote-sbx-payout-old {
+  color: #94a3b8;
+}
+
+.vote-sbx-payout-arrow {
+  color: #64748b;
+}
+
+.vote-sbx-payout-new {
+  color: #cbd5e1;
+  opacity: 0.3;
+  transform: translateY(-2px) scale(0.95);
+  transition: transform 220ms ease, opacity 220ms ease, color 220ms ease;
+}
+
+.vote-sbx-payout-new--on {
+  color: #86efac;
+  opacity: 1;
+  transform: translateY(0) scale(1.06);
+}
+
+.vote-sbx-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.vote-sbx-btn {
+  border-radius: 12px;
+  border: none;
+  padding: 11px 10px;
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: #fff;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.vote-sbx-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vote-sbx-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.vote-sbx-btn--yes {
+  background: #22c55e;
+  box-shadow: 0 4px 0 #15803d;
+}
+
+.vote-sbx-btn--no {
+  background: #ef4444;
+  box-shadow: 0 4px 0 #b91c1c;
+}
+
+.vote-sbx-status {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.vote-sbx-status--ok {
+  color: #a3e635;
+}
+
+.vote-sbx-status--error {
+  color: #fb7185;
+}
+
+.vote-sbx-vs-card {
+  width: min(100%, 380px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(2, 6, 23, 0.88);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  padding: 14px;
+}
+
+.vote-sbx-round-tag {
+  width: fit-content;
+  margin: 0 auto 10px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.8px;
+}
+
+.vote-sbx-outcome {
+  border-radius: 14px;
+  padding: 10px;
+  text-align: center;
+}
+
+.vote-sbx-outcome--red {
+  background: rgba(239, 68, 68, 0.13);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.vote-sbx-outcome--blue {
+  background: rgba(59, 130, 246, 0.13);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.vote-sbx-outcome--timeup {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.vote-sbx-outcome-icon {
+  font-family: "Bitcount Single", monospace;
+  font-size: 1rem;
+  margin-bottom: 2px;
+  letter-spacing: 1px;
+}
+
+.vote-sbx-outcome-title {
+  font-size: 0.92rem;
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+
+.vote-sbx-word {
+  font-size: 0.74rem;
+  color: #cbd5e1;
+  letter-spacing: 0.5px;
+}
+
+.vote-sbx-divider {
+  margin: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.vote-sbx-vote-block .vote-sbx-actions {
+  margin-top: 10px;
+}
+
 .anim-panel {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -225,6 +615,32 @@
   }
 }
 
+@keyframes voteSbxPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes voteSbxChipSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.97);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(0) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @keyframes animPopOut {
   0% {
     opacity: 1;
@@ -264,5 +680,32 @@
 @media (prefers-reduced-motion: reduce) {
   .anim-pop {
     animation: none;
+  }
+
+  .vote-sbx-card--pop {
+    animation: none;
+  }
+
+  .vote-sbx-payout-chip {
+    opacity: 1;
+    transform: none;
+  }
+
+  .vote-sbx-payout-chips--active .vote-sbx-payout-chip {
+    animation: none;
+  }
+
+  .vote-sbx-payout-new {
+    transition: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .anim-vote-panel {
+    min-height: 0;
+  }
+
+  .vote-sbx-actions {
+    grid-template-columns: 1fr;
   }
 }

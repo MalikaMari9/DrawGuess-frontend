@@ -57,6 +57,7 @@ const WaitingRoom = () => {
   const [nowSec, setNowSec] = useState(Math.floor(Date.now() / 1000));
   const [serverSync, setServerSync] = useState({ serverTs: 0, clientTs: 0 });
   const [secretReveal, setSecretReveal] = useState(false);
+  const [configError, setConfigError] = useState("");
   const startSentRef = useRef(false);
 
   const secretWord = roundConfig.secret_word || "";
@@ -161,6 +162,15 @@ const WaitingRoom = () => {
   }, [ws.lastMsg, navigate, mode]);
 
   useEffect(() => {
+    const m = ws.lastMsg;
+    if (!m) return;
+    if (m.type === "error") {
+      const message = m.message || "Request failed";
+      setConfigError(m.code ? `${message} (${m.code})` : message);
+    }
+  }, [ws.lastMsg]);
+
+  useEffect(() => {
     if (ws.status === "CONNECTED") {
       ws.send({ type: "snapshot" });
     }
@@ -204,6 +214,10 @@ const WaitingRoom = () => {
   }, [secretWord, configReady, configSent]);
 
   useEffect(() => {
+    if (configReady) setConfigError("");
+  }, [configReady]);
+
+  useEffect(() => {
     if (!isGM) return;
     if (!configReady) return;
     if (typeof roundConfig.secret_word === "string") setSecret(roundConfig.secret_word);
@@ -232,25 +246,31 @@ const WaitingRoom = () => {
 
   const handleConfigSubmit = async () => {
     if (!secret.trim()) return;
-    setConfigSent(true);
+    setConfigError("");
 
-    if (mode === "SINGLE") {
-      ws.send({
-        type: "set_round_config",
-        secret_word: secret.trim(),
-        stroke_limit: Number(strokeLimit),
-        time_limit_sec: Number(timeLimit),
-      });
-    } else {
-      ws.send({
-        type: "set_vs_config",
-        secret_word: secret.trim(),
-        draw_window_sec: Number(drawWindowSec),
-        strokes_per_phase: Number(strokesPerPhase),
-        guess_window_sec: Number(guessWindowSec),
-        max_rounds: Number(maxRounds),
-      });
+    const payload =
+      mode === "SINGLE"
+        ? {
+            type: "set_round_config",
+            secret_word: secret.trim(),
+            stroke_limit: Number(strokeLimit),
+            time_limit_sec: Number(timeLimit),
+          }
+        : {
+            type: "set_vs_config",
+            secret_word: secret.trim(),
+            draw_window_sec: Number(drawWindowSec),
+            strokes_per_phase: Number(strokesPerPhase),
+            guess_window_sec: Number(guessWindowSec),
+            max_rounds: Number(maxRounds),
+          };
+    const ok = ws.send(payload);
+    if (!ok) {
+      setConfigSent(false);
+      setConfigError("WebSocket not connected");
+      return;
     }
+    setConfigSent(true);
   };
 
   return (
@@ -264,7 +284,7 @@ const WaitingRoom = () => {
         <div className="role-section">
           <div className="role-chip">
             You are: {displayRole}
-            {mode === "VS" && myTeam && ` · ${teamName}`}
+            {mode === "VS" && myTeam && ` | ${teamName}`}
           </div>
           {mode === "VS" && myTeam && teamMembers.length > 0 && (
             <div className="team-panel">
@@ -358,7 +378,7 @@ const WaitingRoom = () => {
                     Strokes/Phase
                     <span
                       className="info-icon"
-                      data-tip="Allowed range: 1–20."
+                      data-tip="Allowed range: 1-20."
                     >
                       i
                     </span>
@@ -420,6 +440,12 @@ const WaitingRoom = () => {
         ) : (
           <div className="waiting-panel">
             <p>Waiting for GM to configure the round...</p>
+          </div>
+        )}
+
+        {configError && (
+          <div className="config-error" role="alert">
+            {configError}
           </div>
         )}
 
