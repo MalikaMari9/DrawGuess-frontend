@@ -121,8 +121,6 @@ const SingleGame = () => {
   const currentStrokeRef = useRef(null);
   const eraserPathRef = useRef([]);
   const playersByPidRef = useRef({});
-  const roundEndHandledKeyRef = useRef("");
-  const routedToWinRef = useRef(false);
   const lastSnapshotReqAtRef = useRef(0);
   const phaseZeroSnapshotRef = useRef(false);
   const lastProcessedMsgSeqRef = useRef(0);
@@ -245,11 +243,6 @@ const SingleGame = () => {
     lastSnapshotReqAtRef.current = now;
     ws.send({ type: "snapshot" });
   }, [ws.status, ws.send]);
-  const goToSingleWin = useCallback((payload) => {
-    if (routedToWinRef.current) return;
-    routedToWinRef.current = true;
-    navigate('/single-win', { state: payload });
-  }, [navigate]);
   const traceFlow = useCallback((event, extra = {}) => {
     if (typeof window !== "undefined" && window.localStorage.getItem("dg_flow_trace") === "0") return;
     console.log("[FLOW][SingleGame]", {
@@ -347,45 +340,15 @@ const SingleGame = () => {
     bumpOps();
 
     if (snapshot?.room?.state === "GAME_END") {
-      const winnerPid = String(snapshot?.game?.winner_pid || "");
-      const reason = String(snapshot?.game?.end_reason || "");
-      const phase = String(snapshot?.game?.phase || "");
-      const roundNo = Number(snapshot?.room?.round_no || 0);
-      const dedupeKey = `${roundNo}:${reason}:${phase}:${winnerPid}`;
-      if (roundEndHandledKeyRef.current !== dedupeKey) {
-        roundEndHandledKeyRef.current = dedupeKey;
-        const winnerName = winnerPid
-          ? (playersByPidRef.current[winnerPid] || `Player ${winnerPid.slice(0, 4)}`)
-          : "";
-
-        setGameState((prev) => ({ ...prev, isGameOver: true, isPaused: true }));
-        if (reason === "VOTE_NO") {
-          const connectedPlayers = players.filter((p) => p && p.connected !== false);
-          const sortedByScore = [...connectedPlayers].sort(
-            (a, b) => Number(b?.points ?? b?.score ?? 0) - Number(a?.points ?? a?.score ?? 0)
-          );
-          const top = sortedByScore[0] || null;
-          goToSingleWin({
-            roomCode: snapshot?.room_code || roomCode,
-            roundNo,
-            endReason: reason,
-            winnerPid: top?.pid || "",
-            winnerName: top?.name || "Winner",
-            players: connectedPlayers,
-          });
-        } else if (phase === "VOTING" && winnerPid) {
-          setChatMessages((prev) => [...prev, { type: "system", text: `${winnerName} guessed correctly. Round ended. Vote next.` }]);
-          setShowMessage(true);
-          setMessage("Round ended. Vote next.");
-        } else if (phase === "VOTING") {
-          setChatMessages((prev) => [...prev, { type: "system", text: "Time is up. No correct guess this round. Vote next." }]);
-          setShowMessage(true);
-          setMessage("TIME'S UP! Vote next.");
-        }
-      }
-    } else {
-      roundEndHandledKeyRef.current = "";
-      routedToWinRef.current = false;
+      traceFlow("navigate", {
+        to: "/single-round-win",
+        source: "snapshot_state",
+        reason: "GAME_END",
+        phase: snapshot?.game?.phase || null,
+        endReason: snapshot?.game?.end_reason || null,
+      });
+      navigate("/single-round-win");
+      return;
     }
 
     if (snapshot?.room?.state === "WAITING") {
@@ -415,7 +378,7 @@ const SingleGame = () => {
       waitingHandledRef.current = false;
       setGameState((prev) => ({ ...prev, isGameOver: false, isPaused: false }));
     }
-  }, [snapshot, goToSingleWin, roomCode, navigate]);
+  }, [snapshot, roomCode, navigate, traceFlow]);
 
   useEffect(() => {
     if (typeof ws.getMessageWindow !== "function") return;
@@ -568,6 +531,11 @@ const SingleGame = () => {
           nextState: msg.state || null,
           raw: msg,
         });
+        if (msg.state === "GAME_END") {
+          traceFlow("navigate", { to: "/single-round-win", source: "room_state_changed", reason: "GAME_END" });
+          navigate("/single-round-win");
+          return;
+        }
         if (msg.state === "WAITING") {
           if (!waitingHandledRef.current) {
             traceFlow("navigate", { to: "/single-lobby", source: "room_state_changed", reason: "WAITING" });
@@ -1467,7 +1435,7 @@ const VOTE_PAYOUT_TOTALS_DELAY_MS = 900;
       {/* Game Container */}
       <div className="game-container">
         
-        <div className="canvas-area dg-canvas-stage">
+        <div className={`canvas-area dg-canvas-stage ${canDraw ? "can-draw" : ""}`}>
           <canvas ref={canvasRef} id="canvasMain" style={!canDraw ? { pointerEvents: 'none' } : undefined}></canvas>
           {showMessage && (
             <div className="overlay-msg" id="gameMsg">

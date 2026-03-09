@@ -7,6 +7,7 @@ import SelectMode from "./pages/SelectMode";
 import SingleCreateRoom from "./pages/SingleCreateRoom";
 import SingleLobby from "./pages/SingleLobby";
 import SingleGame from "./pages/SingleGame";
+import SingleRoundWin from "./pages/SingleRoundWin";
 import SingleWin from "./pages/SingleWin";
 
 // Battle Mode Imports
@@ -19,6 +20,9 @@ import RolePick from "./pages/RolePick";
 import WaitingRoom from "./pages/WaitingRoom";
 import AdminPanel from "./pages/AdminPanel";
 import AnimationTester from "./pages/AnimationTester";
+import RoundWinThemeSandbox from "./pages/RoundWinThemeSandbox";
+import FinalWinThemeSandbox from "./pages/FinalWinThemeSandbox";
+import SabotageFxSandbox from "./pages/SabotageFxSandbox";
 
 import "./App.css";
 import { RoomWSProvider } from "./ws/RoomWSContext";
@@ -37,6 +41,7 @@ function App() {
           <Route path="/single-lobby/:roomCode" element={<SingleLobby />} />
           <Route path="/single-game" element={<SingleGame />} />
           <Route path="/single-game/:roomId" element={<SingleGame />} />
+          <Route path="/single-round-win" element={<SingleRoundWin />} />
           <Route path="/single-win" element={<SingleWin />} />
 
           <Route path="/battle-mode/create" element={<BattleCreateRoom />} />
@@ -48,6 +53,9 @@ function App() {
           <Route path="/waiting-room" element={<WaitingRoom />} />
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/anim-test" element={<AnimationTester />} />
+          <Route path="/round-win-sandbox-v2" element={<RoundWinThemeSandbox />} />
+          <Route path="/final-win-sandbox-v1" element={<FinalWinThemeSandbox />} />
+          <Route path="/sabotage-sandbox" element={<SabotageFxSandbox />} />
 
           <Route
             path="*"

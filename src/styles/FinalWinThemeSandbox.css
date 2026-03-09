@@ -1,0 +1,112 @@
+.final-win-sbx {
+  min-height: 100vh;
+  background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
+  color: #e2e8f0;
+  padding: 14px;
+}
+
+.final-win-sbx__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(8px);
+  margin-bottom: 12px;
+}
+
+.final-win-sbx__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.final-win-sbx__label {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #94a3b8;
+}
+
+.final-win-sbx__btn {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.75px;
+  padding: 7px 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.final-win-sbx__btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(249, 115, 22, 0.6);
+}
+
+.final-win-sbx__btn.is-active {
+  background: rgba(249, 115, 22, 0.18);
+  border-color: rgba(249, 115, 22, 0.58);
+}
+
+.final-win-sbx__stage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.final-win-sbx__stage--single,
+.final-win-sbx__stage--battle {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.final-win-sbx__panel {
+  display: grid;
+  gap: 8px;
+}
+
+.final-win-sbx__title {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #cbd5e1;
+}
+
+.final-win-sbx__frame {
+  width: 100%;
+  min-height: 760px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 16px;
+  background: #020617;
+}
+
+@media (max-width: 980px) {
+  .final-win-sbx__stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .final-win-sbx {
+    padding: 8px;
+  }
+
+  .final-win-sbx__toolbar {
+    padding: 8px;
+    border-radius: 12px;
+  }
+
+  .final-win-sbx__frame {
+    min-height: 680px;
+  }
+}

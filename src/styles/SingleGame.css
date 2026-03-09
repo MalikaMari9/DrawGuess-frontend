@@ -184,7 +184,7 @@
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
+  cursor: default;
   background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
   background-size: 20px 20px;
   display: flex;
@@ -194,12 +194,17 @@
 
 .game-wrapper .canvas-area canvas {
   display: block;
-  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
+  cursor: default;
   max-width: 100%;
   max-height: 100%;
   background: #ffffff;
   border: 2px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+
+.game-wrapper .canvas-area.can-draw,
+.game-wrapper .canvas-area.can-draw canvas {
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><path fill='%23000' d='M3 21l3-1 11-11-2-2L4 18l-1 3z'/><path fill='%23000' d='M14 5l2 2 1-1-2-2-1 1z'/></svg>") 0 24, auto;
 }
 
 .overlay-msg {

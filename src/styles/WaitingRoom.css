@@ -264,6 +264,14 @@
   background: #fb923c;
 }
 
+.waiting-room .start-btn:disabled,
+.waiting-room .start-btn:disabled:hover {
+  transform: none;
+  box-shadow: 0 6px 0 rgba(255, 255, 255, 0.08);
+  background: rgba(148, 163, 184, 0.4);
+  cursor: not-allowed;
+}
+
 .waiting-room .start-btn:active {
   transform: translateY(4px);
   box-shadow: 0 0 0 rgba(255, 255, 255, 0.1);
@@ -285,6 +293,14 @@
 .waiting-room .countdown span {
   color: #facc15;
   font-weight: 700;
+}
+
+.waiting-room .field-error {
+  margin: -8px 0 12px;
+  color: #fca5a5;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
 }
 
 .waiting-room .config-error {
@@ -422,6 +438,12 @@
   .waiting-room .countdown {
     margin-top: 14px;
     font-size: 1rem;
+  }
+
+  .waiting-room .field-error {
+    text-align: left;
+    margin: -4px 0 10px;
+    font-size: 0.78rem;
   }
 
   .waiting-room .config-error {

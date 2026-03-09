@@ -83,8 +83,43 @@ const BattleRoundWin = () => {
       }));
   }, [players, winnerTeam]);
 
+  const gmPlayer = useMemo(() => {
+    const gmPid = String(room.gm_pid || "");
+    if (gmPid) {
+      const byPid = (players || []).find((p) => String(p?.pid || "") === gmPid) || null;
+      if (byPid) return byPid;
+    }
+    return (players || []).find((p) => String(p?.role || "") === "gm") || null;
+  }, [players, room.gm_pid]);
+
+  const gmNoWinnerAward = !winnerTeam && endReason === "NO_WINNER";
+  const noWinnerPayoutName = gmPlayer?.name || "GameMaster";
+
+  const payoutRecipients = useMemo(() => {
+    if (winnerTeam && winners.length > 0) return winners;
+    if (gmNoWinnerAward) {
+      return [
+        {
+          pid: gmPlayer?.pid || "gm",
+          name: noWinnerPayoutName,
+          newPoints: Number(gmPlayer?.points ?? 1),
+        },
+      ];
+    }
+    return [];
+  }, [winnerTeam, winners, gmNoWinnerAward, gmPlayer?.pid, gmPlayer?.points, noWinnerPayoutName]);
+
+  const hasPayout = payoutRecipients.length > 0;
+  const payoutTeamLabel = winnerTeam ? winner.name : noWinnerPayoutName;
+
   useEffect(() => {
-    if (!winnerTeam) {
+    if (typeof game.end_reason === "string" && game.end_reason) {
+      setEndReason(game.end_reason);
+    }
+  }, [game.end_reason]);
+
+  useEffect(() => {
+    if (!hasPayout) {
       setPayoutActive(false);
       setPayoutShowTotals(false);
       return;
@@ -118,7 +153,7 @@ const BattleRoundWin = () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [winnerTeam, room.state]);
+  }, [hasPayout, room.state]);
 
   useEffect(() => {
     if (isGM || !myTeam) {
@@ -237,7 +272,7 @@ const BattleRoundWin = () => {
           Round {round} / {totalRounds}
         </div>
 
-        {winnerTeam && <span ref={payoutOriginRef} className="payout__origin" />}
+        {hasPayout && <span ref={payoutOriginRef} className="payout__origin" />}
 
         <div id="state-win" className={viewState === 'win' ? '' : 'hidden'}>
           <div className="result-icon">WIN</div>
@@ -277,8 +312,12 @@ const BattleRoundWin = () => {
             <div className="winner-section no-winner-section">
               <div className="winner-avatar no-winner-avatar">?</div>
               <div className="winner-info">
-                <span className="winner-name no-winner-name">{endReason === "NO_WINNER" ? "GM got the win!" : "No Winner"}</span>
-                <span className="points-gained no-winner-points">+0 Points</span>
+                <span className="winner-name no-winner-name">
+                  {endReason === "NO_WINNER" ? `${noWinnerPayoutName} got the point!` : "No Winner"}
+                </span>
+                <span className="points-gained no-winner-points">
+                  {gmNoWinnerAward ? `+1 point ${noWinnerPayoutName}` : "+0 Points"}
+                </span>
               </div>
             </div>
           )}
@@ -297,25 +336,31 @@ const BattleRoundWin = () => {
             <div className="winner-avatar no-winner-avatar">?</div>
             <div className="winner-info">
               <span className="winner-name no-winner-name">
-                {winnerTeam ? `${winner.name} Won` : endReason === "NO_WINNER" ? "GM got the win!" : "No Winner"}
+                {winnerTeam ? `${winner.name} Won` : endReason === "NO_WINNER" ? `${noWinnerPayoutName} got the point!` : "No Winner"}
               </span>
-              <span className="points-gained no-winner-points">{winnerTeam ? `+${winner.pointsDelta} point ${winner.name}` : "+0 Points"}</span>
+              <span className="points-gained no-winner-points">
+                {winnerTeam
+                  ? `+${winner.pointsDelta} point ${winner.name}`
+                  : gmNoWinnerAward
+                  ? `+1 point ${noWinnerPayoutName}`
+                  : "+0 Points"}
+              </span>
             </div>
           </div>
         </div>
 
-        {winnerTeam && winners.length > 0 && (
+        {hasPayout && (
           <div className="payout">
-            <div className={`payout__team payout__team--${winnerTeam}`}>
+            <div className={`payout__team ${winnerTeam ? `payout__team--${winnerTeam}` : ""}`}>
               <span className="payout__label">Points Awarded</span>
-              <span className="payout__teamName">{winner.name}</span>
+              <span className="payout__teamName">{payoutTeamLabel}</span>
             </div>
             <div
               ref={payoutChipsRef}
               className={`payout__chips ${payoutActive ? "payout__chips--active" : ""}`}
               style={{ "--payout-from-y": `${payoutFromY}px` }}
             >
-              {winners.map((p) => {
+              {payoutRecipients.map((p) => {
                 const oldPts = Math.max(0, Number(p.newPoints || 0) - 1);
                 const newPts = Number(p.newPoints || 0);
                 return (

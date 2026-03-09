@@ -63,6 +63,43 @@ const WaitingRoom = () => {
   const secretWord = roundConfig.secret_word || "";
   const configReady = Boolean(roundConfig.config_ready);
   const secretRequestedRef = useRef(false);
+  const singleStrokeLimitInvalid =
+    mode === "SINGLE" &&
+    (!Number.isFinite(Number(strokeLimit)) ||
+      Number(strokeLimit) < 10 ||
+      Number(strokeLimit) > 20);
+  const singleTimeLimitInvalid =
+    mode === "SINGLE" &&
+    (!Number.isFinite(Number(timeLimit)) ||
+      Number(timeLimit) < 20 ||
+      Number(timeLimit) > 300);
+  const vsStrokesPerPhaseInvalid =
+    mode === "VS" &&
+    (!Number.isFinite(Number(strokesPerPhase)) ||
+      Number(strokesPerPhase) < 1 ||
+      Number(strokesPerPhase) > 20);
+  const vsDrawWindowInvalid =
+    mode === "VS" &&
+    (!Number.isFinite(Number(drawWindowSec)) ||
+      Number(drawWindowSec) < 10 ||
+      Number(drawWindowSec) > 600);
+  const vsGuessWindowInvalid =
+    mode === "VS" &&
+    (!Number.isFinite(Number(guessWindowSec)) ||
+      Number(guessWindowSec) < 5 ||
+      Number(guessWindowSec) > 60);
+  const vsMaxRoundsInvalid =
+    mode === "VS" &&
+    (!Number.isFinite(Number(maxRounds)) ||
+      Number(maxRounds) < 1 ||
+      Number(maxRounds) > 20);
+  const hasConfigValidationError =
+    singleStrokeLimitInvalid ||
+    singleTimeLimitInvalid ||
+    vsStrokesPerPhaseInvalid ||
+    vsDrawWindowInvalid ||
+    vsGuessWindowInvalid ||
+    vsMaxRoundsInvalid;
 
   const effectiveServerNow = serverSync.serverTs
     ? serverSync.serverTs + (nowSec - serverSync.clientTs)
@@ -246,6 +283,30 @@ const WaitingRoom = () => {
 
   const handleConfigSubmit = async () => {
     if (!secret.trim()) return;
+    if (mode === "SINGLE" && singleStrokeLimitInvalid) {
+      setConfigError("Stroke limit must be between 10 and 20.");
+      return;
+    }
+    if (mode === "SINGLE" && singleTimeLimitInvalid) {
+      setConfigError("Time limit must be between 20 and 300 seconds.");
+      return;
+    }
+    if (mode === "VS" && vsStrokesPerPhaseInvalid) {
+      setConfigError("Strokes per phase must be between 1 and 20.");
+      return;
+    }
+    if (mode === "VS" && vsDrawWindowInvalid) {
+      setConfigError("Draw window must be between 10 and 600 seconds.");
+      return;
+    }
+    if (mode === "VS" && vsGuessWindowInvalid) {
+      setConfigError("Guess window must be between 5 and 60 seconds.");
+      return;
+    }
+    if (mode === "VS" && vsMaxRoundsInvalid) {
+      setConfigError("Max rounds must be between 1 and 20.");
+      return;
+    }
     setConfigError("");
 
     const payload =
@@ -349,7 +410,15 @@ const WaitingRoom = () => {
             {mode === "SINGLE" ? (
               <>
                 <div className="form-row">
-                  <label htmlFor="strokeLimit">Stroke Limit</label>
+                  <label htmlFor="strokeLimit">
+                    Stroke Limit
+                    <span
+                      className="info-icon"
+                      data-tip="Allowed range: 10-20."
+                    >
+                      i
+                    </span>
+                  </label>
                   <input
                     id="strokeLimit"
                     type="number"
@@ -359,17 +428,35 @@ const WaitingRoom = () => {
                     onChange={(e) => setStrokeLimit(Number(e.target.value))}
                   />
                 </div>
+                {singleStrokeLimitInvalid && (
+                  <div className="field-error" role="alert">
+                    Stroke limit must be between 10 and 20.
+                  </div>
+                )}
                 <div className="form-row">
-                  <label htmlFor="timeLimit">Time Limit</label>
+                  <label htmlFor="timeLimit">
+                    Time Limit
+                    <span
+                      className="info-icon"
+                      data-tip="Allowed range: 20-300 seconds."
+                    >
+                      i
+                    </span>
+                  </label>
                   <input
                     id="timeLimit"
                     type="number"
-                    min="180"
-                    max="420"
+                    min="20"
+                    max="300"
                     value={timeLimit}
                     onChange={(e) => setTimeLimit(Number(e.target.value))}
                   />
                 </div>
+                {singleTimeLimitInvalid && (
+                  <div className="field-error" role="alert">
+                    Time limit must be between 20 and 300 seconds.
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -392,8 +479,21 @@ const WaitingRoom = () => {
                     onChange={(e) => setStrokesPerPhase(Number(e.target.value))}
                   />
                 </div>
+                {vsStrokesPerPhaseInvalid && (
+                  <div className="field-error" role="alert">
+                    Strokes per phase must be between 1 and 20.
+                  </div>
+                )}
                 <div className="form-row">
-                  <label htmlFor="drawWindowVs">Draw Window</label>
+                  <label htmlFor="drawWindowVs">
+                    Draw Window
+                    <span
+                      className="info-icon"
+                      data-tip="Allowed range: 10-600 seconds."
+                    >
+                      i
+                    </span>
+                  </label>
                   <input
                     id="drawWindowVs"
                     type="number"
@@ -403,8 +503,21 @@ const WaitingRoom = () => {
                     onChange={(e) => setDrawWindowSec(Number(e.target.value))}
                   />
                 </div>
+                {vsDrawWindowInvalid && (
+                  <div className="field-error" role="alert">
+                    Draw window must be between 10 and 600 seconds.
+                  </div>
+                )}
                 <div className="form-row">
-                  <label htmlFor="guessWindowSec">Guess Window</label>
+                  <label htmlFor="guessWindowSec">
+                    Guess Window
+                    <span
+                      className="info-icon"
+                      data-tip="Allowed range: 5-60 seconds."
+                    >
+                      i
+                    </span>
+                  </label>
                   <input
                     id="guessWindowSec"
                     type="number"
@@ -414,8 +527,21 @@ const WaitingRoom = () => {
                     onChange={(e) => setGuessWindowSec(Number(e.target.value))}
                   />
                 </div>
+                {vsGuessWindowInvalid && (
+                  <div className="field-error" role="alert">
+                    Guess window must be between 5 and 60 seconds.
+                  </div>
+                )}
                 <div className="form-row">
-                  <label htmlFor="maxRounds">Max Rounds</label>
+                  <label htmlFor="maxRounds">
+                    Max Rounds
+                    <span
+                      className="info-icon"
+                      data-tip="Allowed range: 1-20."
+                    >
+                      i
+                    </span>
+                  </label>
                   <input
                     id="maxRounds"
                     type="number"
@@ -425,10 +551,19 @@ const WaitingRoom = () => {
                     onChange={(e) => setMaxRounds(Number(e.target.value))}
                   />
                 </div>
+                {vsMaxRoundsInvalid && (
+                  <div className="field-error" role="alert">
+                    Max rounds must be between 1 and 20.
+                  </div>
+                )}
               </>
             )}
             {!configReady ? (
-              <button className="start-btn" onClick={handleConfigSubmit} disabled={!secret.trim()}>
+              <button
+                className="start-btn"
+                onClick={handleConfigSubmit}
+                disabled={!secret.trim() || hasConfigValidationError}
+              >
                 Confirm & Start Countdown
               </button>
             ) : (

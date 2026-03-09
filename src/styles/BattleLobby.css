@@ -2,7 +2,7 @@
 :root {
   --red: #ef4444;
   --green: #22c55e;
-  --blue: #6d4aff;
+  --blue: #2e86de;
   --orange: #f97316;
   --dark: #020617;
   --glass-bg: rgba(15, 23, 42, 0.7);
@@ -272,8 +272,10 @@
 
 .text-red { color: var(--red); }
 .text-green { color: var(--green); }
+.text-blue { color: var(--blue); }
 .bg-red { background-color: var(--red); }
 .bg-green { background-color: var(--green); }
+.bg-blue { background-color: var(--blue); }
 
 .player-list {
   display: flex;

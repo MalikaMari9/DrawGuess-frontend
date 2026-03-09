@@ -10,7 +10,6 @@ const TRANSITION_DELAY_MS = 1500;
 const TRANSITION_TIME_UP_MS = 900;
 const TRANSITION_SHOW_MS = 1300;
 const TRANSITION_OUT_MS = 700;
-const SABOTAGE_COOLDOWN_SEC = 180;
 
 const fitCanvasToWrapper = (canvas) => {
   if (!canvas) return;
@@ -80,24 +79,27 @@ const BattleGame = () => {
     }
     return { A: initialMaxStrokes, B: initialMaxStrokes };
   });
-  const [sabotageCooldown, setSabotageCooldown] = useState({ A: 0, B: 0 });
+  const [sabotageUsed, setSabotageUsed] = useState(() => {
+    const used = snapshot.game?.sabotage_used || {};
+    return {
+      A: Boolean(used.A),
+      B: Boolean(used.B),
+    };
+  });
   const remainingA = Number(budget?.A ?? maxStrokes);
   const remainingB = Number(budget?.B ?? maxStrokes);
-  const team1CooldownLeft = Math.max(0, Number(sabotageCooldown.A || 0) - nowSec);
-  const team2CooldownLeft = Math.max(0, Number(sabotageCooldown.B || 0) - nowSec);
-  const team1SabotageOnCooldown = team1CooldownLeft > 0;
-  const team2SabotageOnCooldown = team2CooldownLeft > 0;
+  const team1SabotageUsed = Boolean(sabotageUsed.A);
+  const team2SabotageUsed = Boolean(sabotageUsed.B);
   const drawTimeLeft = roundEndAt > 0 ? Math.max(0, roundEndAt - nowSec) : 0;
   const guessTimeLeft = guessEndAt > 0 ? Math.max(0, guessEndAt - nowSec) : 0;
-  const sabotageDisabledLast30 = phase === "DRAW" && roundEndAt > 0 && drawTimeLeft <= 30;
   const phaseTimeLeft = phase === "GUESS" ? guessTimeLeft : phase === "DRAW" ? drawTimeLeft : 0;
   const phaseTimeLabel = phase === "GUESS" ? "GUESS TIME" : phase === "DRAW" ? "DRAW TIME" : "TIME";
   const canGuessA = ws.status === "CONNECTED" && phase === "GUESS" && isGuesserA;
   const canGuessB = ws.status === "CONNECTED" && phase === "GUESS" && isGuesserB;
   const canDrawA = phase === "DRAW" && isDrawerA;
   const canDrawB = phase === "DRAW" && isDrawerB;
-  const team1SabotageDisabled = !canDrawA || remainingA <= 0 || team1SabotageOnCooldown || sabotageDisabledLast30;
-  const team2SabotageDisabled = !canDrawB || remainingB <= 0 || team2SabotageOnCooldown || sabotageDisabledLast30;
+  const team1SabotageDisabled = !canDrawA || remainingA <= 0 || team1SabotageUsed;
+  const team2SabotageDisabled = !canDrawB || remainingB <= 0 || team2SabotageUsed;
   const teamGuessed = snapshot.game?.team_guessed || {};
   const teamAlreadyGuessed = myTeam ? !!teamGuessed[myTeam] : false;
   // Tool states for Team 1
@@ -191,10 +193,43 @@ const BattleGame = () => {
   // Score state
   const [redScore, setRedScore] = useState(0);
   const [blueScore, setBlueScore] = useState(0);
-  const sabotageArmed1Ref = useRef(false);
-  const sabotageArmed2Ref = useRef(false);
+  const [sabotageModeTeam, setSabotageModeTeam] = useState(null);
+  const [sabotageTargetTeam, setSabotageTargetTeam] = useState(null);
+  const [sabotageArmedBy, setSabotageArmedBy] = useState("");
+  const [sabotageArmedUntil, setSabotageArmedUntil] = useState(0);
   const [lastError, setLastError] = useState(null);
   const [focusPulse, setFocusPulse] = useState(false);
+
+  const clearSabotageState = useCallback(() => {
+    setSabotageModeTeam(null);
+    setSabotageTargetTeam(null);
+    setSabotageArmedBy("");
+    setSabotageArmedUntil(0);
+  }, []);
+
+  const hydrateSabotageStateFromSnapshot = useCallback(
+    (gameState) => {
+      const armedTeam = gameState?.sabotage_armed_team;
+      const targetTeam = gameState?.sabotage_target_team;
+      const byPid = gameState?.sabotage_armed_by || "";
+      const armedUntil = Number(gameState?.sabotage_armed_until || 0);
+      const now = Math.floor(Date.now() / 1000);
+      const active =
+        (armedTeam === "A" || armedTeam === "B") &&
+        (targetTeam === "A" || targetTeam === "B") &&
+        Boolean(byPid) &&
+        armedUntil > now;
+      if (!active) {
+        clearSabotageState();
+        return;
+      }
+      setSabotageModeTeam(armedTeam);
+      setSabotageTargetTeam(targetTeam);
+      setSabotageArmedBy(byPid);
+      setSabotageArmedUntil(armedUntil);
+    },
+    [clearSabotageState]
+  );
 
   // Initialize canvases
   useEffect(() => {
@@ -230,6 +265,16 @@ const BattleGame = () => {
   }, [snapshot.game?.draw_end_at, snapshot.game?.guess_end_at]);
 
   useEffect(() => {
+    hydrateSabotageStateFromSnapshot(snapshot.game || {});
+  }, [
+    snapshot.game?.sabotage_armed_team,
+    snapshot.game?.sabotage_target_team,
+    snapshot.game?.sabotage_armed_by,
+    snapshot.game?.sabotage_armed_until,
+    hydrateSabotageStateFromSnapshot,
+  ]);
+
+  useEffect(() => {
     if (teamAlreadyGuessed) setHasGuessedThisPhase(true);
   }, [teamAlreadyGuessed]);
 
@@ -251,9 +296,27 @@ const BattleGame = () => {
   }, [myTeam]);
 
   useEffect(() => {
+    const isArmingDrawer =
+      (sabotageModeTeam === "A" && canDrawA) ||
+      (sabotageModeTeam === "B" && canDrawB);
+    if (sabotageTargetTeam && isArmingDrawer) {
+      setMobileTeamView(sabotageTargetTeam);
+      return;
+    }
     if (!activeTargetTeam) return;
     setMobileTeamView(activeTargetTeam);
-  }, [activeTargetTeam, room.round_no, phase]);
+  }, [activeTargetTeam, room.round_no, phase, sabotageTargetTeam, sabotageModeTeam, canDrawA, canDrawB]);
+
+  useEffect(() => {
+    if (!sabotageModeTeam) return;
+    if (phase !== "DRAW") {
+      clearSabotageState();
+      return;
+    }
+    if (sabotageArmedUntil > 0 && nowSec >= sabotageArmedUntil) {
+      clearSabotageState();
+    }
+  }, [sabotageModeTeam, phase, nowSec, sabotageArmedUntil, clearSabotageState]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -445,6 +508,7 @@ const BattleGame = () => {
         setPhase(m.game?.phase || "");
         setRoundEndAt(Number(m.game?.draw_end_at || 0));
         setGuessEndAt(Number(m.game?.guess_end_at || 0));
+        hydrateSabotageStateFromSnapshot(m.game || {});
         const snapBudget = m.game?.budget;
         if (snapBudget && (typeof snapBudget.A === "number" || typeof snapBudget.B === "number")) {
           setBudget({
@@ -452,10 +516,10 @@ const BattleGame = () => {
             B: Number(snapBudget.B ?? 0),
           });
         }
-        const snapCooldown = m.game?.cooldown || {};
-        setSabotageCooldown({
-          A: Number(snapCooldown.sabotage_next_ts_A || 0),
-          B: Number(snapCooldown.sabotage_next_ts_B || 0),
+        const snapSabotageUsed = m.game?.sabotage_used || {};
+        setSabotageUsed({
+          A: Boolean(snapSabotageUsed.A),
+          B: Boolean(snapSabotageUsed.B),
         });
         const sp = m.round_config?.strokes_per_phase;
         if (typeof sp === "number" && sp > 0) setMaxStrokes(sp);
@@ -573,7 +637,30 @@ const BattleGame = () => {
       if (m.type === "phase_changed") {
         setPhase(m.phase || "");
         setHasGuessedThisPhase(false);
+        clearSabotageState();
         ws.send({ type: "snapshot" });
+      }
+
+      if (m.type === "sabotage_state") {
+        if (m.active) {
+          const armedTeam = m.from_team;
+          const targetTeam = m.target;
+          const armedUntil = Number(m.armed_until || 0);
+          if ((armedTeam === "A" || armedTeam === "B") && (targetTeam === "A" || targetTeam === "B")) {
+            setSabotageModeTeam(armedTeam);
+            setSabotageTargetTeam(targetTeam);
+            setSabotageArmedBy(m.by || "");
+            setSabotageArmedUntil(armedUntil);
+            if ((m.by || "") === (ws.pid || localStorage.getItem("dg_pid"))) {
+              setFocusPulse(true);
+              setTimeout(() => setFocusPulse(false), 1300);
+            }
+          } else {
+            clearSabotageState();
+          }
+        } else {
+          clearSabotageState();
+        }
       }
 
       if (m.type === "sabotage_used") {
@@ -581,10 +668,9 @@ const BattleGame = () => {
         const p = players.find((x) => x.pid === byPid);
         const team = p?.team;
         if (team === "A" || team === "B") {
-          setSabotageCooldown((prev) => ({ ...prev, [team]: Number(m.cooldown_until || 0) }));
+          setSabotageUsed((prev) => ({ ...prev, [team]: true }));
         }
-        sabotageArmed1Ref.current = false;
-        sabotageArmed2Ref.current = false;
+        clearSabotageState();
       }
 
       if (m.type === "game_end") {
@@ -619,15 +705,28 @@ const BattleGame = () => {
         setLastError(m);
         const code = m.code || "";
         if (code.includes("SABOTAGE") || code === "INSUFFICIENT_BUDGET" || code === "NO_BUDGET") {
-          sabotageArmed1Ref.current = false;
-          sabotageArmed2Ref.current = false;
+          clearSabotageState();
           ws.send({ type: "snapshot" });
         }
       }
     });
 
     lastProcessedMsgSeqRef.current = entries[entries.length - 1].seq;
-  }, [ws.msgSeq, ws.getMessagesSince, ws.getMessageWindow, players, ws.pid, ws.send, navigate, snapshot.round_config, maxStrokes, myTeam, room.round_no]);
+  }, [
+    ws.msgSeq,
+    ws.getMessagesSince,
+    ws.getMessageWindow,
+    players,
+    ws.pid,
+    ws.send,
+    navigate,
+    snapshot.round_config,
+    maxStrokes,
+    myTeam,
+    room.round_no,
+    clearSabotageState,
+    hydrateSabotageStateFromSnapshot,
+  ]);
   const renderStrokes = (teamId) => {
     const canvas = teamId === 1 ? canvas1Ref.current : canvas2Ref.current;
     const ctx = teamId === 1 ? ctx1Ref.current : ctx2Ref.current;
@@ -692,60 +791,90 @@ const BattleGame = () => {
   const startDrawing1 = useCallback(
     (e) => {
       e.preventDefault();
-      if (!canDrawA) return;
-      if (team1Mode === 'draw' && remainingA <= 0) return;
+      const sabotageByB = sabotageModeTeam === "B" && canDrawB;
+      const normalDrawA = canDrawA && sabotageModeTeam !== "A";
+      if (!normalDrawA && !sabotageByB) return;
+
+      const actorTeam = sabotageByB ? "B" : "A";
+      const actorMode = actorTeam === "A" ? team1Mode : team2Mode;
+      const actorSize = actorTeam === "A" ? team1Size : team2Size;
+      const actorColor = actorTeam === "A" ? team1Color : team2Color;
+      const actorBrush = actorTeam === "A" ? team1Brush : team2Brush;
+      const actorRemaining = actorTeam === "A" ? remainingA : remainingB;
+
+      if (sabotageByB && (actorMode !== "draw" || (actorBrush !== "line" && actorBrush !== "circle"))) {
+        alert('Sabotage only supports line or circle.');
+        clearSabotageState();
+        return;
+      }
+      if (actorMode === 'draw' && actorRemaining <= 0) return;
 
       setIsDrawing1(true);
       const { x, y } = getCanvasCoordinates(e, canvas1Ref.current);
 
       const ctx = ctx1Ref.current;
       ctx.beginPath();
-      ctx.lineWidth = team1Size;
+      ctx.lineWidth = actorSize;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      if (team1Mode === 'erase') {
+      if (actorMode === 'erase') {
         ctx.globalCompositeOperation = 'destination-out';
       } else {
         ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = team1Color;
+        ctx.strokeStyle = actorColor;
       }
 
-      if (team1Mode !== 'erase') {
-        ctx.fillStyle = team1Color;
+      if (actorMode !== 'erase') {
+        ctx.fillStyle = actorColor;
       }
 
-      if (team1Mode === 'erase') {
+      if (actorMode === 'erase') {
         currentStroke1Ref.current = null;
         eraserPath1Ref.current = [{ x, y }];
         ctx.beginPath();
         ctx.moveTo(x, y);
-      } else if (team1Mode === 'draw' && (team1Brush === 'line' || team1Brush === 'circle')) {
+      } else if (actorMode === 'draw' && (actorBrush === 'line' || actorBrush === 'circle')) {
         currentStroke1Ref.current = {
-          type: team1Brush,
-          color: team1Color,
-          size: team1Size,
+          type: actorBrush,
+          color: actorColor,
+          size: actorSize,
           start: { x, y },
           end: { x, y },
           center: { x, y },
           radius: 0
         };
-      } else if (team1Brush === 'circle') {
+      } else if (actorBrush === 'circle') {
         ctx.beginPath();
-        ctx.arc(x, y, team1Size / 2, 0, Math.PI * 2);
+        ctx.arc(x, y, actorSize / 2, 0, Math.PI * 2);
         ctx.stroke();
       } else {
         ctx.beginPath();
         ctx.moveTo(x, y);
         currentStroke1Ref.current = {
           type: 'free',
-          color: team1Color,
-          size: team1Size,
+          color: actorColor,
+          size: actorSize,
           points: [{ x, y }]
         };
       }
     },
-    [canDrawA, remainingA, team1Mode, team1Size, team1Color, team1Brush]
+    [
+      canDrawA,
+      canDrawB,
+      remainingA,
+      remainingB,
+      sabotageModeTeam,
+      team1Mode,
+      team1Size,
+      team1Color,
+      team1Brush,
+      team2Mode,
+      team2Size,
+      team2Color,
+      team2Brush,
+      clearSabotageState,
+    ]
   );
 
   const draw1 = useCallback(
@@ -754,15 +883,17 @@ const BattleGame = () => {
       if (!isDrawing1) return;
 
       const { x, y } = getCanvasCoordinates(e, canvas1Ref.current);
-      const sabotageArmed = sabotageArmed1Ref.current;
-      const previewTeamId = sabotageArmed ? 2 : 1;
-      const previewCtx = previewTeamId === 1 ? ctx1Ref.current : ctx2Ref.current;
+      const sabotageByB = sabotageModeTeam === "B" && canDrawB;
+      const actorTeam = sabotageByB ? "B" : "A";
+      const actorMode = actorTeam === "A" ? team1Mode : team2Mode;
+      const actorBrush = actorTeam === "A" ? team1Brush : team2Brush;
+      const actorSize = actorTeam === "A" ? team1Size : team2Size;
       const ctx = ctx1Ref.current;
-      if (team1Mode === 'erase') {
-        const eraserRadius = Math.max(6, team1Size * 1.5);
+      if (actorMode === 'erase') {
+        const eraserRadius = Math.max(6, actorSize * 1.5);
         eraserPath1Ref.current.push({ x, y });
         eraseAt(1, { x, y }, eraserRadius);
-      } else if (team1Mode === 'draw' && (team1Brush === 'line' || team1Brush === 'circle')) {
+      } else if (actorMode === 'draw' && (actorBrush === 'line' || actorBrush === 'circle')) {
         const stroke = currentStroke1Ref.current;
         if (stroke) {
           stroke.end = { x, y };
@@ -772,36 +903,49 @@ const BattleGame = () => {
             stroke.center = { x: stroke.start.x, y: stroke.start.y };
             stroke.radius = Math.sqrt(dx * dx + dy * dy);
           }
-          renderStrokes(previewTeamId);
-          if (previewCtx) drawStroke(previewCtx, stroke);
+          renderStrokes(1);
+          drawStroke(ctx, stroke);
         }
-      } else if (team1Brush === 'circle') {
+      } else if (actorBrush === 'circle') {
         ctx.beginPath();
-        ctx.arc(x, y, team1Size / 2, 0, Math.PI * 2);
+        ctx.arc(x, y, actorSize / 2, 0, Math.PI * 2);
         ctx.stroke();
       } else {
         const stroke = currentStroke1Ref.current;
         if (stroke && stroke.type === 'free') {
           stroke.points.push({ x, y });
-          renderStrokes(previewTeamId);
-          if (previewCtx) drawStroke(previewCtx, stroke);
+          renderStrokes(1);
+          drawStroke(ctx, stroke);
         }
       }
     },
-    [isDrawing1, team1Brush, team1Size, team1Mode]
+    [isDrawing1, sabotageModeTeam, canDrawB, team1Mode, team1Brush, team1Size, team2Mode, team2Brush, team2Size]
   );
 
   const stopDrawing1 = useCallback(() => {
+    const sabotageByB = sabotageModeTeam === "B" && canDrawB;
+    const actorTeam = sabotageByB ? "B" : "A";
+    const actorMode = actorTeam === "A" ? team1Mode : team2Mode;
+    const actorSize = actorTeam === "A" ? team1Size : team2Size;
+    const actorRemaining = actorTeam === "A" ? remainingA : remainingB;
+    const actorSabotageUsed = actorTeam === "A" ? team1SabotageUsed : team2SabotageUsed;
+
     if (isDrawing1) {
-      if (team1Mode === 'erase') {
+      if (actorMode === 'erase') {
         // send erase op
         const path = eraserPath1Ref.current || [];
         eraserPath1Ref.current = [];
         if (path.length >= 2) {
-          const canSendErase = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
+          const canSendErase =
+            !sabotageByB &&
+            ws.status === "CONNECTED" &&
+            phase === "DRAW" &&
+            actorTeam === "A" &&
+            myTeam === "A" &&
+            myRole.includes("drawer");
           if (canSendErase) {
             const pts = path.map((pt) => [pt.x, pt.y]);
-            const op = { t: "line", p: { pts, w: team1Size, erase: 1 } };
+            const op = { t: "line", p: { pts, w: actorSize, erase: 1 } };
             ws.send({ type: "draw_op", canvas: "A", op });
           }
         }
@@ -809,40 +953,36 @@ const BattleGame = () => {
     }
     setIsDrawing1(false);
     if (ctx1Ref.current) {
-      if (team1Mode === 'draw') {
+      if (actorMode === 'draw') {
         const stroke = currentStroke1Ref.current;
         if (stroke) {
-          const canSend = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "A" && myRole.includes("drawer");
+          const canSend =
+            ws.status === "CONNECTED" &&
+            phase === "DRAW" &&
+            ((actorTeam === "A" && canDrawA) || (actorTeam === "B" && canDrawB));
           const op = strokeToOp(stroke);
-          const sabotageArmed = sabotageArmed1Ref.current;
+          const sabotageArmed = sabotageByB;
           const sabotageOpOk = !!op && (op.t === "line" || op.t === "circle");
           const sabotageAllowedNow =
             canSend &&
-            remainingA > 0 &&
-            !team1SabotageOnCooldown &&
-            !sabotageDisabledLast30 &&
-            team1Mode === "draw" &&
+            actorRemaining > 0 &&
+            !actorSabotageUsed &&
+            actorMode === "draw" &&
             sabotageOpOk;
           currentStroke1Ref.current = null;
           if (canSend && op) {
             if (sabotageArmed && sabotageAllowedNow) {
-              // Optimistic render on opponent canvas, then send sabotage to backend.
-              strokes2Ref.current.push(stroke);
-              renderStrokes(2);
-              ws.send({ type: "sabotage", target: "B", op });
-              setSabotageCooldown((prev) => ({
-                ...prev,
-                A: Math.max(Number(prev.A || 0), Math.floor(Date.now() / 1000) + SABOTAGE_COOLDOWN_SEC),
-              }));
-              sabotageArmed1Ref.current = false;
+              // Optimistic render on target canvas, then send sabotage to backend.
+              strokes1Ref.current.push(stroke);
+              renderStrokes(1);
+              ws.send({ type: "sabotage", target: "A", op });
+              clearSabotageState();
             } else {
               if (sabotageArmed) {
-                sabotageArmed1Ref.current = false;
-                if (team1SabotageOnCooldown) {
-                  alert(`Sabotage on cooldown (${team1CooldownLeft}s).`);
-                } else if (sabotageDisabledLast30) {
-                  alert('Sabotage is disabled in the last 30 seconds.');
-                } else if (remainingA <= 0) {
+                clearSabotageState();
+                if (actorSabotageUsed) {
+                  alert('Your team already used sabotage this game.');
+                } else if (actorRemaining <= 0) {
                   alert('Not enough strokes for sabotage.');
                 } else {
                   alert('Sabotage only supports line or circle.');
@@ -857,7 +997,7 @@ const BattleGame = () => {
           } else {
             // Keep local-only preview if send is not possible.
             if (sabotageArmed) {
-              sabotageArmed1Ref.current = false;
+              clearSabotageState();
               renderStrokes(1);
             } else {
               strokes1Ref.current.push(stroke);
@@ -868,66 +1008,116 @@ const BattleGame = () => {
       }
       ctx1Ref.current.closePath();
     }
-  }, [isDrawing1, team1Mode, ws.status, phase, myTeam, myRole]);
+  }, [
+    isDrawing1,
+    sabotageModeTeam,
+    canDrawA,
+    canDrawB,
+    team1Mode,
+    team1Brush,
+    team1Size,
+    team2Mode,
+    team2Brush,
+    team2Size,
+    remainingA,
+    remainingB,
+    team1SabotageUsed,
+    team2SabotageUsed,
+    ws.status,
+    phase,
+    myTeam,
+    myRole,
+    clearSabotageState,
+  ]);
 
   // Drawing functions for Team 2
   const startDrawing2 = useCallback(
     (e) => {
       e.preventDefault();
-      if (!canDrawB) return;
-      if (team2Mode === 'draw' && remainingB <= 0) return;
+      const sabotageByA = sabotageModeTeam === "A" && canDrawA;
+      const normalDrawB = canDrawB && sabotageModeTeam !== "B";
+      if (!normalDrawB && !sabotageByA) return;
+
+      const actorTeam = sabotageByA ? "A" : "B";
+      const actorMode = actorTeam === "A" ? team1Mode : team2Mode;
+      const actorSize = actorTeam === "A" ? team1Size : team2Size;
+      const actorColor = actorTeam === "A" ? team1Color : team2Color;
+      const actorBrush = actorTeam === "A" ? team1Brush : team2Brush;
+      const actorRemaining = actorTeam === "A" ? remainingA : remainingB;
+
+      if (sabotageByA && (actorMode !== "draw" || (actorBrush !== "line" && actorBrush !== "circle"))) {
+        alert('Sabotage only supports line or circle.');
+        clearSabotageState();
+        return;
+      }
+      if (actorMode === 'draw' && actorRemaining <= 0) return;
 
       setIsDrawing2(true);
       const { x, y } = getCanvasCoordinates(e, canvas2Ref.current);
 
       const ctx = ctx2Ref.current;
       ctx.beginPath();
-      ctx.lineWidth = team2Size;
+      ctx.lineWidth = actorSize;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      if (team2Mode === 'erase') {
+      if (actorMode === 'erase') {
         ctx.globalCompositeOperation = 'destination-out';
       } else {
         ctx.globalCompositeOperation = 'source-over';
-        ctx.strokeStyle = team2Color;
+        ctx.strokeStyle = actorColor;
       }
 
-      if (team2Mode !== 'erase') {
-        ctx.fillStyle = team2Color;
+      if (actorMode !== 'erase') {
+        ctx.fillStyle = actorColor;
       }
 
-      if (team2Mode === 'erase') {
+      if (actorMode === 'erase') {
         currentStroke2Ref.current = null;
         eraserPath2Ref.current = [{ x, y }];
         ctx.beginPath();
         ctx.moveTo(x, y);
-      } else if (team2Mode === 'draw' && (team2Brush === 'line' || team2Brush === 'circle')) {
+      } else if (actorMode === 'draw' && (actorBrush === 'line' || actorBrush === 'circle')) {
         currentStroke2Ref.current = {
-          type: team2Brush,
-          color: team2Color,
-          size: team2Size,
+          type: actorBrush,
+          color: actorColor,
+          size: actorSize,
           start: { x, y },
           end: { x, y },
           center: { x, y },
           radius: 0
         };
-      } else if (team2Brush === 'circle') {
+      } else if (actorBrush === 'circle') {
         ctx.beginPath();
-        ctx.arc(x, y, team2Size / 2, 0, Math.PI * 2);
+        ctx.arc(x, y, actorSize / 2, 0, Math.PI * 2);
         ctx.stroke();
       } else {
         ctx.beginPath();
         ctx.moveTo(x, y);
         currentStroke2Ref.current = {
           type: 'free',
-          color: team2Color,
-          size: team2Size,
+          color: actorColor,
+          size: actorSize,
           points: [{ x, y }]
         };
       }
     },
-    [canDrawB, remainingB, team2Mode, team2Size, team2Color, team2Brush]
+    [
+      canDrawA,
+      canDrawB,
+      remainingA,
+      remainingB,
+      sabotageModeTeam,
+      team1Mode,
+      team1Size,
+      team1Color,
+      team1Brush,
+      team2Mode,
+      team2Size,
+      team2Color,
+      team2Brush,
+      clearSabotageState,
+    ]
   );
 
   const draw2 = useCallback(
@@ -936,15 +1126,17 @@ const BattleGame = () => {
       if (!isDrawing2) return;
 
       const { x, y } = getCanvasCoordinates(e, canvas2Ref.current);
-      const sabotageArmed = sabotageArmed2Ref.current;
-      const previewTeamId = sabotageArmed ? 1 : 2;
-      const previewCtx = previewTeamId === 1 ? ctx1Ref.current : ctx2Ref.current;
+      const sabotageByA = sabotageModeTeam === "A" && canDrawA;
+      const actorTeam = sabotageByA ? "A" : "B";
+      const actorMode = actorTeam === "A" ? team1Mode : team2Mode;
+      const actorBrush = actorTeam === "A" ? team1Brush : team2Brush;
+      const actorSize = actorTeam === "A" ? team1Size : team2Size;
       const ctx = ctx2Ref.current;
-      if (team2Mode === 'erase') {
-        const eraserRadius = Math.max(6, team2Size * 1.5);
+      if (actorMode === 'erase') {
+        const eraserRadius = Math.max(6, actorSize * 1.5);
         eraserPath2Ref.current.push({ x, y });
         eraseAt(2, { x, y }, eraserRadius);
-      } else if (team2Mode === 'draw' && (team2Brush === 'line' || team2Brush === 'circle')) {
+      } else if (actorMode === 'draw' && (actorBrush === 'line' || actorBrush === 'circle')) {
         const stroke = currentStroke2Ref.current;
         if (stroke) {
           stroke.end = { x, y };
@@ -954,36 +1146,49 @@ const BattleGame = () => {
             stroke.center = { x: stroke.start.x, y: stroke.start.y };
             stroke.radius = Math.sqrt(dx * dx + dy * dy);
           }
-          renderStrokes(previewTeamId);
-          if (previewCtx) drawStroke(previewCtx, stroke);
+          renderStrokes(2);
+          drawStroke(ctx, stroke);
         }
-      } else if (team2Brush === 'circle') {
+      } else if (actorBrush === 'circle') {
         ctx.beginPath();
-        ctx.arc(x, y, team2Size / 2, 0, Math.PI * 2);
+        ctx.arc(x, y, actorSize / 2, 0, Math.PI * 2);
         ctx.stroke();
       } else {
         const stroke = currentStroke2Ref.current;
         if (stroke && stroke.type === 'free') {
           stroke.points.push({ x, y });
-          renderStrokes(previewTeamId);
-          if (previewCtx) drawStroke(previewCtx, stroke);
+          renderStrokes(2);
+          drawStroke(ctx, stroke);
         }
       }
     },
-    [isDrawing2, team2Brush, team2Size, team2Mode]
+    [isDrawing2, sabotageModeTeam, canDrawA, team1Mode, team1Brush, team1Size, team2Mode, team2Brush, team2Size]
   );
 
   const stopDrawing2 = useCallback(() => {
+    const sabotageByA = sabotageModeTeam === "A" && canDrawA;
+    const actorTeam = sabotageByA ? "A" : "B";
+    const actorMode = actorTeam === "A" ? team1Mode : team2Mode;
+    const actorSize = actorTeam === "A" ? team1Size : team2Size;
+    const actorRemaining = actorTeam === "A" ? remainingA : remainingB;
+    const actorSabotageUsed = actorTeam === "A" ? team1SabotageUsed : team2SabotageUsed;
+
     if (isDrawing2) {
-      if (team2Mode === 'erase') {
+      if (actorMode === 'erase') {
         // send erase op
         const path = eraserPath2Ref.current || [];
         eraserPath2Ref.current = [];
         if (path.length >= 2) {
-          const canSendErase = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
+          const canSendErase =
+            !sabotageByA &&
+            ws.status === "CONNECTED" &&
+            phase === "DRAW" &&
+            actorTeam === "B" &&
+            myTeam === "B" &&
+            myRole.includes("drawer");
           if (canSendErase) {
             const pts = path.map((pt) => [pt.x, pt.y]);
-            const op = { t: "line", p: { pts, w: team2Size, erase: 1 } };
+            const op = { t: "line", p: { pts, w: actorSize, erase: 1 } };
             ws.send({ type: "draw_op", canvas: "B", op });
           }
         }
@@ -991,40 +1196,36 @@ const BattleGame = () => {
     }
     setIsDrawing2(false);
     if (ctx2Ref.current) {
-      if (team2Mode === 'draw') {
+      if (actorMode === 'draw') {
         const stroke = currentStroke2Ref.current;
         if (stroke) {
-          const canSend = ws.status === "CONNECTED" && phase === "DRAW" && myTeam === "B" && myRole.includes("drawer");
+          const canSend =
+            ws.status === "CONNECTED" &&
+            phase === "DRAW" &&
+            ((actorTeam === "A" && canDrawA) || (actorTeam === "B" && canDrawB));
           const op = strokeToOp(stroke);
-          const sabotageArmed = sabotageArmed2Ref.current;
+          const sabotageArmed = sabotageByA;
           const sabotageOpOk = !!op && (op.t === "line" || op.t === "circle");
           const sabotageAllowedNow =
             canSend &&
-            remainingB > 0 &&
-            !team2SabotageOnCooldown &&
-            !sabotageDisabledLast30 &&
-            team2Mode === "draw" &&
+            actorRemaining > 0 &&
+            !actorSabotageUsed &&
+            actorMode === "draw" &&
             sabotageOpOk;
           currentStroke2Ref.current = null;
           if (canSend && op) {
             if (sabotageArmed && sabotageAllowedNow) {
-              // Optimistic render on opponent canvas, then send sabotage to backend.
-              strokes1Ref.current.push(stroke);
-              renderStrokes(1);
-              ws.send({ type: "sabotage", target: "A", op });
-              setSabotageCooldown((prev) => ({
-                ...prev,
-                B: Math.max(Number(prev.B || 0), Math.floor(Date.now() / 1000) + SABOTAGE_COOLDOWN_SEC),
-              }));
-              sabotageArmed2Ref.current = false;
+              // Optimistic render on target canvas, then send sabotage to backend.
+              strokes2Ref.current.push(stroke);
+              renderStrokes(2);
+              ws.send({ type: "sabotage", target: "B", op });
+              clearSabotageState();
             } else {
               if (sabotageArmed) {
-                sabotageArmed2Ref.current = false;
-                if (team2SabotageOnCooldown) {
-                  alert(`Sabotage on cooldown (${team2CooldownLeft}s).`);
-                } else if (sabotageDisabledLast30) {
-                  alert('Sabotage is disabled in the last 30 seconds.');
-                } else if (remainingB <= 0) {
+                clearSabotageState();
+                if (actorSabotageUsed) {
+                  alert('Your team already used sabotage this game.');
+                } else if (actorRemaining <= 0) {
                   alert('Not enough strokes for sabotage.');
                 } else {
                   alert('Sabotage only supports line or circle.');
@@ -1039,7 +1240,7 @@ const BattleGame = () => {
           } else {
             // Keep local-only preview if send is not possible.
             if (sabotageArmed) {
-              sabotageArmed2Ref.current = false;
+              clearSabotageState();
               renderStrokes(2);
             } else {
               strokes2Ref.current.push(stroke);
@@ -1050,7 +1251,27 @@ const BattleGame = () => {
       }
       ctx2Ref.current.closePath();
     }
-  }, [isDrawing2, team2Mode, ws.status, phase, myTeam, myRole]);
+  }, [
+    isDrawing2,
+    sabotageModeTeam,
+    canDrawA,
+    canDrawB,
+    team1Mode,
+    team1Brush,
+    team1Size,
+    team2Mode,
+    team2Brush,
+    team2Size,
+    remainingA,
+    remainingB,
+    team1SabotageUsed,
+    team2SabotageUsed,
+    ws.status,
+    phase,
+    myTeam,
+    myRole,
+    clearSabotageState,
+  ]);
 
   const getCanvasCoordinates = (e, canvas) => {
     if (!canvas) return { x: 0, y: 0 };
@@ -1194,32 +1415,24 @@ const BattleGame = () => {
   // Sabotage function for Team 1
   const handleSabotageTeam1 = () => {
     if (!canDrawA) return;
-    if (sabotageDisabledLast30) {
-      alert('Sabotage is disabled in the last 30 seconds.');
+    if (sabotageModeTeam === "A") {
+      ws.send({ type: "sabotage_cancel" });
       return;
     }
+    if (sabotageModeTeam && sabotageModeTeam !== "A") return;
     if (remainingA <= 0) {
       alert('Not enough strokes for sabotage.');
       return;
     }
-    if (team1SabotageOnCooldown) {
-      alert(`Sabotage on cooldown (${team1CooldownLeft}s).`);
+    if (team1SabotageUsed) {
+      alert('Your team already used sabotage this game.');
       return;
     }
     if (team1Mode !== "draw" || (team1Brush !== "line" && team1Brush !== "circle")) {
       alert('Sabotage only supports line or circle.');
       return;
     }
-    sabotageArmed1Ref.current = true;
-
-    // Shake opponent's column
-    const opponentCol = document.getElementById('col2');
-    if (opponentCol) {
-      opponentCol.classList.add('shake');
-      setTimeout(() => {
-        opponentCol.classList.remove('shake');
-      }, 500);
-    }
+    ws.send({ type: "sabotage_arm" });
 
     // Visual feedback
     const myBtn = document.getElementById('sab1');
@@ -1236,32 +1449,24 @@ const BattleGame = () => {
   // Sabotage function for Team 2
   const handleSabotageTeam2 = () => {
     if (!canDrawB) return;
-    if (sabotageDisabledLast30) {
-      alert('Sabotage is disabled in the last 30 seconds.');
+    if (sabotageModeTeam === "B") {
+      ws.send({ type: "sabotage_cancel" });
       return;
     }
+    if (sabotageModeTeam && sabotageModeTeam !== "B") return;
     if (remainingB <= 0) {
       alert('Not enough strokes for sabotage.');
       return;
     }
-    if (team2SabotageOnCooldown) {
-      alert(`Sabotage on cooldown (${team2CooldownLeft}s).`);
+    if (team2SabotageUsed) {
+      alert('Your team already used sabotage this game.');
       return;
     }
     if (team2Mode !== "draw" || (team2Brush !== "line" && team2Brush !== "circle")) {
       alert('Sabotage only supports line or circle.');
       return;
     }
-    sabotageArmed2Ref.current = true;
-
-    // Shake opponent's column
-    const opponentCol = document.getElementById('col1');
-    if (opponentCol) {
-      opponentCol.classList.add('shake');
-      setTimeout(() => {
-        opponentCol.classList.remove('shake');
-      }, 500);
-    }
+    ws.send({ type: "sabotage_arm" });
 
     // Visual feedback
     const myBtn = document.getElementById('sab2');
@@ -1319,6 +1524,13 @@ const BattleGame = () => {
   };
 
   const focusMobileTeam = (team) => {
+    const isArmingDrawer =
+      (sabotageModeTeam === "A" && canDrawA) ||
+      (sabotageModeTeam === "B" && canDrawB);
+    if (sabotageTargetTeam && isArmingDrawer) {
+      setMobileTeamView(sabotageTargetTeam);
+      return;
+    }
     setMobileTeamView(team === "B" ? "B" : "A");
   };
 
@@ -1331,19 +1543,48 @@ const BattleGame = () => {
 
   const isOwnerA = ownerTeam === "A";
   const isOwnerB = ownerTeam === "B";
-  const focusCanvasA = isOwnerA && phase === "DRAW" && canDrawA;
-  const focusCanvasB = isOwnerB && phase === "DRAW" && canDrawB;
+  const sabotageFocusA = sabotageTargetTeam === "A";
+  const sabotageFocusB = sabotageTargetTeam === "B";
+  const canInteractCanvasA = canDrawA || (sabotageModeTeam === "B" && canDrawB);
+  const canInteractCanvasB = canDrawB || (sabotageModeTeam === "A" && canDrawA);
+  const focusCanvasA = sabotageFocusA || (isOwnerA && phase === "DRAW" && canDrawA);
+  const focusCanvasB = sabotageFocusB || (isOwnerB && phase === "DRAW" && canDrawB);
   const focusChatA = isOwnerA && phase === "GUESS" && canGuessA && !hasGuessedThisPhase;
   const focusChatB = isOwnerB && phase === "GUESS" && canGuessB && !hasGuessedThisPhase;
-  const focusHintA = focusCanvasA ? "DRAW HERE" : focusChatA ? "GUESS HERE" : "";
-  const focusHintB = focusCanvasB ? "DRAW HERE" : focusChatB ? "GUESS HERE" : "";
+  const focusHintA = sabotageFocusA ? "SABOTAGE HERE" : focusCanvasA ? "DRAW HERE" : focusChatA ? "GUESS HERE" : "";
+  const focusHintB = sabotageFocusB ? "SABOTAGE HERE" : focusCanvasB ? "DRAW HERE" : focusChatB ? "GUESS HERE" : "";
   const pulseA = focusPulse && (focusCanvasA || focusChatA);
   const pulseB = focusPulse && (focusCanvasB || focusChatB);
   const mobileActiveA = mobileTeamView === "A";
   const mobileActiveB = mobileTeamView === "B";
+  const sabotageActive = Boolean(sabotageModeTeam && sabotageTargetTeam);
+  const sabotageRemainingSec =
+    sabotageArmedUntil > 0 ? Math.max(0, sabotageArmedUntil - nowSec) : 0;
+  const sabotageFromLabel =
+    sabotageModeTeam === "A" ? "Red Team" : sabotageModeTeam === "B" ? "Blue Team" : "Team";
+  const sabotageTargetLabel =
+    sabotageTargetTeam === "A" ? "Red Team" : sabotageTargetTeam === "B" ? "Blue Team" : "Team";
+  const sabotageActorName = players.find((p) => p.pid === sabotageArmedBy)?.name || "Unknown";
+  const sabotageIsMine = Boolean(sabotageArmedBy) && sabotageArmedBy === myPid;
+  const sabotageVictim = Boolean(myTeam) && myTeam === sabotageTargetTeam;
+  const sabotageCanCancel =
+    sabotageIsMine &&
+    phase === "DRAW" &&
+    ((sabotageModeTeam === "A" && canDrawA) || (sabotageModeTeam === "B" && canDrawB));
+  const sabotageFrameTone =
+    sabotageTargetTeam === "A" ? "sabotage-tone-red" : sabotageTargetTeam === "B" ? "sabotage-tone-blue" : "";
+  const sabotageBannerText = sabotageIsMine
+    ? `SABOTAGE ON: Draw one line or circle on ${sabotageTargetLabel} canvas.`
+    : sabotageVictim
+    ? `WARNING: ${sabotageFromLabel} armed sabotage against your canvas.`
+    : `SABOTAGE ON: ${sabotageFromLabel} -> ${sabotageTargetLabel}.`;
 
   return (
-    <div className="battle-game-body">
+    <div
+      className={`battle-game-body ${sabotageActive ? `sabotage-room-active ${sabotageFrameTone}` : ""} ${
+        sabotageVictim ? "sabotage-room-victim" : ""
+      }`}
+    >
       {transitionActive && (
         <div className="phase-overlay">
           {transitionStarted && (
@@ -1412,6 +1653,29 @@ const BattleGame = () => {
         </div>
       </div>
 
+      {sabotageActive && (
+        <div
+          className={`sabotage-mode-banner ${
+            sabotageModeTeam === "A" ? "sabotage-mode-banner-red" : "sabotage-mode-banner-blue"
+          }`}
+          role="status"
+        >
+          <span className="sabotage-mode-text">
+            {sabotageBannerText} {sabotageActorName !== "Unknown" ? `By ${sabotageActorName}. ` : ""}
+            {sabotageRemainingSec > 0 ? `${sabotageRemainingSec}s left.` : ""}
+          </span>
+          {sabotageCanCancel && (
+            <button
+              type="button"
+              className="sabotage-cancel-btn"
+              onClick={() => ws.send({ type: "sabotage_cancel" })}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Game Container */}
       <div className="game-container">
         <div className="mobile-team-switch" role="tablist" aria-label="Team panel switch">
@@ -1424,7 +1688,12 @@ const BattleGame = () => {
           >
             <span className="mobile-team-tab-name">{redTeam.name}</span>
             <span className="mobile-team-tab-meta">
-              {redScore} pts {activeTargetTeam === "A" ? "• ACTIVE" : ""}
+              {redScore} pts{" "}
+              {sabotageTargetTeam === "A"
+                ? "SABOTAGE"
+                : activeTargetTeam === "A"
+                ? "ACTIVE"
+                : ""}
             </span>
           </button>
           <button
@@ -1436,7 +1705,12 @@ const BattleGame = () => {
           >
             <span className="mobile-team-tab-name">{blueTeam.name}</span>
             <span className="mobile-team-tab-meta">
-              {blueScore} pts {activeTargetTeam === "B" ? "• ACTIVE" : ""}
+              {blueScore} pts{" "}
+              {sabotageTargetTeam === "B"
+                ? "SABOTAGE"
+                : activeTargetTeam === "B"
+                ? "ACTIVE"
+                : ""}
             </span>
           </button>
         </div>
@@ -1489,7 +1763,9 @@ const BattleGame = () => {
 
           {/* Canvas */}
           <div
-            className={`canvas-wrapper dg-canvas-stage ${canDrawA ? "can-draw" : ""} ${
+            className={`canvas-wrapper dg-canvas-stage ${canInteractCanvasA ? "can-draw" : ""} ${
+              sabotageFocusA ? "sabotage-target" : ""
+            } ${
               focusCanvasA ? `focus-target focus-red ${pulseA ? "focus-pulse" : ""}` : ""
             }`}
           >
@@ -1504,7 +1780,9 @@ const BattleGame = () => {
               {/* Sabotage Button */}
                 <div
                   id="sab1"
-                  className={`sabotage-btn ${team1SabotageDisabled ? 'used' : ''}`}
+                  className={`sabotage-btn ${team1SabotageDisabled ? 'used' : ''} ${
+                    sabotageModeTeam === "A" ? "armed" : ""
+                  }`}
                   onClick={handleSabotageTeam1}
                   aria-disabled={team1SabotageDisabled}
                 >
@@ -1689,7 +1967,9 @@ const BattleGame = () => {
 
           {/* Canvas */}
           <div
-            className={`canvas-wrapper dg-canvas-stage ${canDrawB ? "can-draw" : ""} ${
+            className={`canvas-wrapper dg-canvas-stage ${canInteractCanvasB ? "can-draw" : ""} ${
+              sabotageFocusB ? "sabotage-target" : ""
+            } ${
               focusCanvasB ? `focus-target focus-blue ${pulseB ? "focus-pulse" : ""}` : ""
             }`}
           >
@@ -1704,7 +1984,9 @@ const BattleGame = () => {
               {/* Sabotage Button */}
                 <div
                   id="sab2"
-                  className={`sabotage-btn ${team2SabotageDisabled ? 'used' : ''}`}
+                  className={`sabotage-btn ${team2SabotageDisabled ? 'used' : ''} ${
+                    sabotageModeTeam === "B" ? "armed" : ""
+                  }`}
                   onClick={handleSabotageTeam2}
                   aria-disabled={team2SabotageDisabled}
                 >

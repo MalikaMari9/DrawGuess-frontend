@@ -181,8 +181,8 @@ const RolePick = () => {
 
               <div className="team-side">
                 <div className="team-header">
-                  <span className="team-title text-green">BLUE TEAM</span>
-                  <div className="team-count bg-green">{splitTeams.blue.length}</div>
+                  <span className="team-title text-blue">BLUE TEAM</span>
+                  <div className="team-count bg-blue">{splitTeams.blue.length}</div>
                 </div>
                 <div className="player-list">
                   {splitTeams.blue.length === 0 ? (
@@ -192,7 +192,7 @@ const RolePick = () => {
                   ) : (
                     splitTeams.blue.map((player) => (
                       <div key={player.pid} className="player-card">
-                        <div className="avatar-display" style={{ background: "#22c55e" }}>
+                        <div className="avatar-display" style={{ background: "#2e86de" }}>
                           {(player.name || "?")[0]?.toUpperCase()}
                         </div>
                         <div className="player-info">
