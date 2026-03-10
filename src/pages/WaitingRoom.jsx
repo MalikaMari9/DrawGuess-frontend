@@ -590,18 +590,6 @@ const WaitingRoom = () => {
           </div>
         )}
 
-        <div className="debug-panel">
-          <div>Mode: {mode}</div>
-          <div>Room state: {room.state || "?"}</div>
-          <div>gm_pid: {room.gm_pid || "?"}</div>
-          <div>myPid: {myPid || "?"}</div>
-          <div>me found: {String(Boolean(me && me.pid))}</div>
-          <div>Config ready: {String(configReady)}</div>
-          <div>Secret in snapshot: {String(Boolean(secretWord))}</div>
-          <div>My role: {myRole || "?"}</div>
-          <div>My team: {myTeam || "none"}</div>
-        </div>
-
       </div>
     </div>
   );

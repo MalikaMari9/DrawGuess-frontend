@@ -479,52 +479,6 @@ const BattleRoundWin = () => {
         ) : null}
       </div>
 
-      {process.env.NODE_ENV === 'development' && (
-        <div
-          className="demo-controls"
-          style={{
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            zIndex: 100,
-            display: 'flex',
-            gap: '10px',
-          }}
-        >
-          <button
-            className="demo-btn"
-            onClick={() => setViewState('win')}
-            style={{
-              padding: '8px 12px',
-              background: 'rgba(0,0,0,0.8)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontFamily: 'sans-serif',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-            }}
-          >
-            Show: Win
-          </button>
-          <button
-            className="demo-btn"
-            onClick={() => setViewState('lose')}
-            style={{
-              padding: '8px 12px',
-              background: 'rgba(0,0,0,0.8)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontFamily: 'sans-serif',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-            }}
-          >
-            Show: No Winner
-          </button>
-        </div>
-      )}
     </div>
   );
 };

@@ -314,19 +314,6 @@
   text-align: left;
 }
 
-.waiting-room .debug-panel {
-  margin-top: 16px;
-  font-size: 0.8rem;
-  color: #cbd5f5;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  padding: 10px;
-  border-radius: 10px;
-  text-align: left;
-  display: grid;
-  gap: 4px;
-}
-
 @media (max-width: 900px) {
   .waiting-room {
     align-items: flex-start;
@@ -451,8 +438,4 @@
     font-size: 0.82rem;
   }
 
-  .waiting-room .debug-panel {
-    margin-top: 12px;
-    font-size: 0.74rem;
-  }
 }

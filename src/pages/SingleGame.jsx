@@ -169,7 +169,6 @@ const SingleGame = () => {
   const [transitionFlipped, setTransitionFlipped] = useState(false);
   const [transitionExit, setTransitionExit] = useState(false);
   const strokesLeft = Math.max(0, Number.isFinite(serverStrokesLeft) ? serverStrokesLeft : snapshotStrokesLeft);
-  const strokesUsed = strokeLimit ? Math.max(0, strokeLimit - strokesLeft) : 0;
   const roomRoundNo = Number(snapshot?.room?.round_no || 0);
   const isInRound = snapshot?.room?.state === "IN_GAME";
   const isVotingPhase = snapshot?.room?.state === "GAME_END" && String(gameSnap?.phase || "") === "VOTING";
@@ -805,7 +804,7 @@ const VOTE_PAYOUT_TOTALS_DELAY_MS = 900;
     score: 0
   });
 
-  const strokesRemaining = strokeLimit ? Math.max(0, strokeLimit - strokesUsed) : 0;
+  const strokesRemaining = Math.max(0, strokesLeft);
 
   // UI state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -1398,15 +1397,15 @@ const VOTE_PAYOUT_TOTALS_DELAY_MS = 900;
   };
 
   // ========== UI CALCULATIONS ==========
-  const effectiveMaxStrokes = Math.max(1, strokeLimit);
-  const strokePercentage = (strokesUsed / effectiveMaxStrokes) * 100;
+  const displayStrokeMax = Math.max(0, strokeLimit);
+  const strokePercentage = displayStrokeMax > 0 ? (strokesRemaining / displayStrokeMax) * 100 : 0;
   const displayTimeLeft = hasServerTimer ? serverTimeLeft : MAX_TIME;
   const effectiveMaxTime = hasServerTimer && timeLimitSec ? timeLimitSec : MAX_TIME;
   const timePercentage = (displayTimeLeft / Math.max(1, effectiveMaxTime)) * 100;
   
   const getStrokeBarColor = () => {
-    if (strokePercentage > 80) return '#ef4444';
-    if (strokePercentage > 50) return '#facc15';
+    if (strokePercentage <= 20) return '#ef4444';
+    if (strokePercentage <= 50) return '#facc15';
     return '#6d4aff';
   };
 
@@ -1476,8 +1475,8 @@ const VOTE_PAYOUT_TOTALS_DELAY_MS = 900;
           </div>
 
           <div className="data-item dg-data-item">
-            <span className="data-label">Ink</span>
-            <span className="data-value stroke">{strokesUsed}</span>
+            <span className="data-label">Strokes</span>
+            <span className="data-value stroke">{`${strokesRemaining}/${displayStrokeMax}`}</span>
             <div className="data-bar-bg">
               <div 
                 className="data-bar-fill stroke" 

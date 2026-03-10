@@ -88,6 +88,26 @@ const SingleRoundWin = () => {
     return rows;
   }, [winnerPid, winnerPlayer, winnerName, drawerPid, drawerPlayer, noWinnerGetsGmPoint, gmPlayer]);
   const hasPayout = payoutRows.length > 0;
+  const winnerAwardRows = useMemo(() => {
+    if (!winnerPid) return [];
+    return payoutRows;
+  }, [winnerPid, payoutRows]);
+  const winnerCardName = useMemo(() => {
+    if (!winnerAwardRows.length) return winnerName || "Player";
+    if (winnerAwardRows.length === 1) return winnerAwardRows[0].name;
+    if (winnerAwardRows.length === 2) return `${winnerAwardRows[0].name} & ${winnerAwardRows[1].name}`;
+    return `${winnerAwardRows[0].name} + ${winnerAwardRows.length - 1} others`;
+  }, [winnerAwardRows, winnerName]);
+  const winnerCardPointsLine = useMemo(() => {
+    if (!winnerAwardRows.length) return "Round ended. Vote for next round.";
+    if (winnerAwardRows.length === 1) return "+1 point";
+    return "+1 point each";
+  }, [winnerAwardRows]);
+  const winnerHeadline = useMemo(() => {
+    if (!winnerPid) return "Time's Up!";
+    if (winnerAwardRows.length > 1) return "Drawer + Guesser Win!";
+    return "Correct Guess!";
+  }, [winnerPid, winnerAwardRows.length]);
   const payoutHeading = useMemo(() => {
     if (!payoutRows.length) return "Winner";
     if (payoutRows.length === 1) return payoutRows[0].name;
@@ -328,7 +348,7 @@ const SingleRoundWin = () => {
 
         <div id="single-round-end">
           <h2 className={`result-title ${winnerPid ? "color-win" : "color-lose"}`}>
-            {winnerPid ? `${winnerName || "A player"} is correct!` : "Time's Up!"}
+            {winnerHeadline}
           </h2>
 
           <div className="word-reveal-box">
@@ -338,10 +358,10 @@ const SingleRoundWin = () => {
 
           {winnerPid ? (
             <div className="winner-section">
-              <div className="winner-avatar">{(winnerName || "?")[0]?.toUpperCase()}</div>
+              <div className="winner-avatar">{(winnerCardName || "?")[0]?.toUpperCase()}</div>
               <div className="winner-info">
-                <span className="winner-name">{winnerName || "Player"}</span>
-                <span className="points-gained">Round ended. Vote for next round.</span>
+                <span className="winner-name">{winnerCardName}</span>
+                <span className="points-gained">{winnerCardPointsLine}</span>
               </div>
             </div>
           ) : (
