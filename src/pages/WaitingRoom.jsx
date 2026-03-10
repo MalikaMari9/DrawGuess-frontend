@@ -574,7 +574,7 @@ const WaitingRoom = () => {
           </div>
         ) : (
           <div className="waiting-panel">
-            <p>Waiting for GM to configure the round...</p>
+            <p>{configReady ? "Config ready. Waiting for countdown..." : "Waiting for GM to configure the round..."}</p>
           </div>
         )}
 
