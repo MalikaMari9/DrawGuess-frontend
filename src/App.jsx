@@ -23,6 +23,7 @@ import AnimationTester from "./pages/AnimationTester";
 import RoundWinThemeSandbox from "./pages/RoundWinThemeSandbox";
 import FinalWinThemeSandbox from "./pages/FinalWinThemeSandbox";
 import SabotageFxSandbox from "./pages/SabotageFxSandbox";
+import RolePickThemeSandbox from "./pages/RolePickThemeSandbox";
 
 import "./App.css";
 import { RoomWSProvider } from "./ws/RoomWSContext";
@@ -56,6 +57,7 @@ function App() {
           <Route path="/round-win-sandbox-v2" element={<RoundWinThemeSandbox />} />
           <Route path="/final-win-sandbox-v1" element={<FinalWinThemeSandbox />} />
           <Route path="/sabotage-sandbox" element={<SabotageFxSandbox />} />
+          <Route path="/role-pick-sandbox-v1" element={<RolePickThemeSandbox />} />
 
           <Route
             path="*"

@@ -47,6 +47,8 @@ const BattleRoundWin = () => {
   const payoutChipsRef = useRef(null);
   const [voteRemaining, setVoteRemaining] = useState(null);
   const [voteStats, setVoteStats] = useState(null); // from server vote_progress
+  const [voteTotal, setVoteTotal] = useState(0);
+  const voteEndAtRef = useRef(0);
 
   const eligibleCount = useMemo(
     () => (players || []).filter((p) => p?.connected !== false).length,
@@ -61,6 +63,25 @@ const BattleRoundWin = () => {
   const effectiveEligible = voteStats?.eligible ?? eligibleCount;
   const effectiveYes = voteStats?.yes_count ?? yesCount;
   const effectiveVoted = voteStats?.voted_count ?? votedCount;
+  const voteProgressPercent = useMemo(() => {
+    if (voteRemaining === null) return 0;
+    const total = Math.max(1, voteTotal || voteRemaining || 1);
+    return Math.max(0, Math.min(100, Math.round((voteRemaining / total) * 100)));
+  }, [voteRemaining, voteTotal]);
+  const voteUrgencyClass = useMemo(() => {
+    if (voteRemaining === null) return "sync";
+    if (voteRemaining <= 0) return "ended";
+    if (voteRemaining <= 3) return "critical";
+    if (voteRemaining <= 6) return "danger";
+    if (voteRemaining <= 10) return "warn";
+    return "normal";
+  }, [voteRemaining]);
+  const voteStatusText =
+    voteRemaining === null
+      ? "Syncing vote timer..."
+      : voteRemaining > 0
+      ? `Vote ends in: ${voteRemaining}s`
+      : "Vote window ended. Resolving...";
 
   const winners = useMemo(() => {
     if (!winnerTeam) return [];
@@ -239,10 +260,22 @@ const BattleRoundWin = () => {
     if (!canVote) {
       setVoteRemaining(null);
       setVoteStats(null);
+      setVoteTotal(0);
+      voteEndAtRef.current = 0;
       return;
     }
 
     const voteEndAt = Number(game.vote_end_at || 0);
+    if (!voteEndAt) {
+      setVoteRemaining(null);
+      setVoteTotal(0);
+      voteEndAtRef.current = 0;
+      return;
+    }
+    if (voteEndAtRef.current !== voteEndAt) {
+      voteEndAtRef.current = voteEndAt;
+      setVoteTotal(0);
+    }
     const serverTs = Number(snapshot.server_ts || 0);
     const drift = serverTs ? Date.now() / 1000 - serverTs : 0;
 
@@ -250,12 +283,22 @@ const BattleRoundWin = () => {
       const serverNow = Math.floor(Date.now() / 1000 - drift);
       const rem = Math.max(0, voteEndAt - serverNow);
       setVoteRemaining(rem);
+      setVoteTotal((prev) => Math.max(prev, rem));
     };
 
     update();
     const id = setInterval(update, 250);
     return () => clearInterval(id);
   }, [canVote, game.vote_end_at, snapshot.server_ts]);
+
+  useEffect(() => {
+    if (!canVote) return;
+    const statsEndAt = Number(voteStats?.vote_end_at || 0);
+    const statsTs = Number(voteStats?.ts || 0);
+    if (!statsEndAt || !statsTs) return;
+    const statsRemaining = Math.max(0, statsEndAt - statsTs);
+    setVoteTotal((prev) => Math.max(prev, statsRemaining));
+  }, [canVote, voteStats?.vote_end_at, voteStats?.ts]);
 
   const submitVote = (vote) => {
     if (!canVote || voted) return;
@@ -389,12 +432,27 @@ const BattleRoundWin = () => {
         {canVote ? (
           <div className="result-vote">
             <div className="result-vote-title">Vote for next game</div>
-            <div className="result-vote-meta">
-              {voteRemaining === null
-                ? "Syncing vote timer..."
-                : voteRemaining > 0
-                ? `Vote ends in: ${voteRemaining}s`
-                : "Vote window ended. Resolving..."}
+            <div className="result-vote-countdown">
+              <div
+                className={`result-vote-timer result-vote-timer--${voteUrgencyClass}`}
+                style={{ "--vote-progress": `${voteProgressPercent}%` }}
+                aria-hidden="true"
+              >
+                <span className="result-vote-timer__value">
+                  {voteRemaining === null ? "--" : Math.max(0, voteRemaining)}
+                </span>
+                <span className="result-vote-timer__unit">s</span>
+              </div>
+              <div className="result-vote-countdown__text">
+                <div className={`result-vote-meta result-vote-meta--countdown result-vote-meta--${voteUrgencyClass}`}>
+                  {voteStatusText}
+                </div>
+                {voteRemaining !== null && voteRemaining > 0 ? (
+                  <div className="result-vote-meta result-vote-meta--subtle">
+                    {voteProgressPercent}% time left
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="result-vote-meta result-vote-meta--stats">
               YES: {effectiveYes} / {effectiveEligible} - Voted: {effectiveVoted} / {effectiveEligible}

@@ -25,6 +25,8 @@ const SingleRoundWin = () => {
   const [lastError, setLastError] = useState(null);
   const [voteStats, setVoteStats] = useState(null);
   const [voteRemaining, setVoteRemaining] = useState(null);
+  const [voteTotal, setVoteTotal] = useState(0);
+  const voteEndAtRef = useRef(0);
   const routedToFinalRef = useRef(false);
   const payoutOriginRef = useRef(null);
   const payoutChipsRef = useRef(null);
@@ -40,6 +42,11 @@ const SingleRoundWin = () => {
     () => players.find((p) => String(p?.pid || "") === winnerPid) || null,
     [players, winnerPid]
   );
+  const drawerPid = String(game.drawer_pid || snapshot.roles?.drawer || "");
+  const drawerPlayer = useMemo(
+    () => players.find((p) => String(p?.pid || "") === drawerPid) || null,
+    [players, drawerPid]
+  );
   const gmPlayer = useMemo(() => {
     const gmPid = String(room.gm_pid || "");
     if (gmPid) {
@@ -49,17 +56,43 @@ const SingleRoundWin = () => {
     return players.find((p) => String(p?.role || "") === "gm") || null;
   }, [players, room.gm_pid]);
   const winnerName = winnerPlayer?.name || initialState.winnerName || "";
-  const winnerNewPoints = Number(winnerPlayer?.points ?? 1);
-  const winnerOldPoints = Math.max(0, winnerNewPoints - 1);
   const noWinnerGetsGmPoint = !winnerPid && (endReason === "TIMEOUT" || endReason === "NO_WINNER");
-  const payoutPlayer = winnerPid ? winnerPlayer : noWinnerGetsGmPoint ? gmPlayer : null;
-  const payoutName =
-    payoutPlayer?.name || (winnerPid ? winnerName || "Winner" : noWinnerGetsGmPoint ? "GameMaster" : "");
-  const payoutNewPoints = Number(
-    payoutPlayer?.points ?? (winnerPid ? winnerNewPoints : noWinnerGetsGmPoint ? 1 : 0)
-  );
-  const payoutOldPoints = Math.max(0, payoutNewPoints - 1);
-  const hasPayout = Boolean(winnerPid || noWinnerGetsGmPoint);
+  const payoutRows = useMemo(() => {
+    const rows = [];
+    const seen = new Set();
+    const addRow = (pid, player, fallbackName) => {
+      const key = String(pid || player?.pid || "");
+      if (key && seen.has(key)) return;
+      if (key) seen.add(key);
+      const newPoints = Number(player?.points ?? 1);
+      rows.push({
+        pid: key,
+        name: player?.name || fallbackName || "Player",
+        oldPoints: Math.max(0, newPoints - 1),
+        newPoints,
+        delta: 1,
+      });
+    };
+
+    if (winnerPid) {
+      addRow(winnerPid, winnerPlayer, winnerName || "Winner");
+      if (drawerPid && drawerPid !== winnerPid) {
+        addRow(drawerPid, drawerPlayer, "Drawer");
+      }
+      return rows;
+    }
+
+    if (noWinnerGetsGmPoint) {
+      addRow(gmPlayer?.pid, gmPlayer, "GameMaster");
+    }
+    return rows;
+  }, [winnerPid, winnerPlayer, winnerName, drawerPid, drawerPlayer, noWinnerGetsGmPoint, gmPlayer]);
+  const hasPayout = payoutRows.length > 0;
+  const payoutHeading = useMemo(() => {
+    if (!payoutRows.length) return "Winner";
+    if (payoutRows.length === 1) return payoutRows[0].name;
+    return payoutRows.map((row) => row.name).join(" + ");
+  }, [payoutRows]);
 
   const canVote = room.state === "GAME_END" && game.phase === "VOTING";
   const votesNext = game.votes_next && typeof game.votes_next === "object" ? game.votes_next : {};
@@ -75,6 +108,25 @@ const SingleRoundWin = () => {
   const effectiveEligible = voteStats?.eligible ?? eligibleCount;
   const effectiveVoted = voteStats?.voted_count ?? votedCount;
   const effectiveYes = voteStats?.yes_count ?? yesCount;
+  const voteProgressPercent = useMemo(() => {
+    if (voteRemaining === null) return 0;
+    const total = Math.max(1, voteTotal || voteRemaining || 1);
+    return Math.max(0, Math.min(100, Math.round((voteRemaining / total) * 100)));
+  }, [voteRemaining, voteTotal]);
+  const voteUrgencyClass = useMemo(() => {
+    if (voteRemaining === null) return "sync";
+    if (voteRemaining <= 0) return "ended";
+    if (voteRemaining <= 3) return "critical";
+    if (voteRemaining <= 6) return "danger";
+    if (voteRemaining <= 10) return "warn";
+    return "normal";
+  }, [voteRemaining]);
+  const voteStatusText =
+    voteRemaining === null
+      ? "Syncing vote timer..."
+      : voteRemaining > 0
+      ? `Vote ends in: ${voteRemaining}s`
+      : "Vote window ended. Resolving...";
 
   const finalPayload = useMemo(() => {
     const connectedPlayers = players.filter((p) => p && p.connected !== false);
@@ -216,13 +268,21 @@ const SingleRoundWin = () => {
     if (!canVote) {
       setVoteRemaining(null);
       setVoteStats(null);
+      setVoteTotal(0);
+      voteEndAtRef.current = 0;
       return;
     }
 
     const voteEndAt = Number(game.vote_end_at || 0);
     if (!voteEndAt) {
       setVoteRemaining(null);
+      setVoteTotal(0);
+      voteEndAtRef.current = 0;
       return;
+    }
+    if (voteEndAtRef.current !== voteEndAt) {
+      voteEndAtRef.current = voteEndAt;
+      setVoteTotal(0);
     }
 
     const serverTs = Number(snapshot.server_ts || 0);
@@ -231,12 +291,22 @@ const SingleRoundWin = () => {
       const serverNow = Math.floor(Date.now() / 1000 - drift);
       const rem = Math.max(0, voteEndAt - serverNow);
       setVoteRemaining(rem);
+      setVoteTotal((prev) => Math.max(prev, rem));
     };
 
     update();
     const id = setInterval(update, 250);
     return () => clearInterval(id);
   }, [canVote, game.vote_end_at, snapshot.server_ts]);
+
+  useEffect(() => {
+    if (!canVote) return;
+    const statsEndAt = Number(voteStats?.vote_end_at || 0);
+    const statsTs = Number(voteStats?.ts || 0);
+    if (!statsEndAt || !statsTs) return;
+    const statsRemaining = Math.max(0, statsEndAt - statsTs);
+    setVoteTotal((prev) => Math.max(prev, statsRemaining));
+  }, [canVote, voteStats?.vote_end_at, voteStats?.ts]);
 
   const submitVote = (vote) => {
     if (!canVote || voted) return;
@@ -282,7 +352,9 @@ const SingleRoundWin = () => {
                   {endReason === "NO_WINNER" || endReason === "TIMEOUT" ? "No correct guess" : "Round ended"}
                 </span>
                 <span className="points-gained no-winner-points">
-                  {noWinnerGetsGmPoint ? `${payoutName} +1 point` : "Vote to continue or stop."}
+                  {noWinnerGetsGmPoint
+                    ? `${payoutRows[0]?.name || "GameMaster"} +1 point`
+                    : "Vote to continue or stop."}
                 </span>
               </div>
             </div>
@@ -292,29 +364,31 @@ const SingleRoundWin = () => {
             <div className="payout">
               <div className="payout__team">
                 <span className="payout__label">Points Awarded</span>
-                <span className="payout__teamName">{payoutName || "Winner"}</span>
+                <span className="payout__teamName">{payoutHeading}</span>
               </div>
               <div
                 ref={payoutChipsRef}
                 className={`payout__chips ${payoutActive ? "payout__chips--active" : ""}`}
                 style={{ "--payout-from-y": `${payoutFromY}px` }}
               >
-                <div className="payout__chip">
-                  <div className="payout__chipTop">
-                    <span className="payout__name">{payoutName || "Winner"}</span>
-                    <span className="payout__delta">+1</span>
-                  </div>
-                  <div className="payout__chipBottom">
-                    <span className="payout__totalLabel">Total</span>
-                    <span className="payout__total">
-                      <span className="payout__ptsOld">{payoutOldPoints}</span>
-                      <span className="payout__arrow">{"->"}</span>
-                      <span className={`payout__ptsNew ${payoutShowTotals ? "payout__ptsNew--on" : ""}`}>
-                        {payoutNewPoints}
+                {payoutRows.map((row) => (
+                  <div key={row.pid || row.name} className="payout__chip">
+                    <div className="payout__chipTop">
+                      <span className="payout__name">{row.name}</span>
+                      <span className="payout__delta">+{row.delta}</span>
+                    </div>
+                    <div className="payout__chipBottom">
+                      <span className="payout__totalLabel">Total</span>
+                      <span className="payout__total">
+                        <span className="payout__ptsOld">{row.oldPoints}</span>
+                        <span className="payout__arrow">{"->"}</span>
+                        <span className={`payout__ptsNew ${payoutShowTotals ? "payout__ptsNew--on" : ""}`}>
+                          {row.newPoints}
+                        </span>
                       </span>
-                    </span>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
             </div>
           ) : null}
@@ -323,12 +397,27 @@ const SingleRoundWin = () => {
         {canVote ? (
           <div className="result-vote">
             <div className="result-vote-title">Vote for next game</div>
-            <div className="result-vote-meta">
-              {voteRemaining === null
-                ? "Syncing vote timer..."
-                : voteRemaining > 0
-                ? `Vote ends in: ${voteRemaining}s`
-                : "Vote window ended. Resolving..."}
+            <div className="result-vote-countdown">
+              <div
+                className={`result-vote-timer result-vote-timer--${voteUrgencyClass}`}
+                style={{ "--vote-progress": `${voteProgressPercent}%` }}
+                aria-hidden="true"
+              >
+                <span className="result-vote-timer__value">
+                  {voteRemaining === null ? "--" : Math.max(0, voteRemaining)}
+                </span>
+                <span className="result-vote-timer__unit">s</span>
+              </div>
+              <div className="result-vote-countdown__text">
+                <div className={`result-vote-meta result-vote-meta--countdown result-vote-meta--${voteUrgencyClass}`}>
+                  {voteStatusText}
+                </div>
+                {voteRemaining !== null && voteRemaining > 0 ? (
+                  <div className="result-vote-meta result-vote-meta--subtle">
+                    {voteProgressPercent}% time left
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="result-vote-meta result-vote-meta--stats">
               YES: {effectiveYes} / {effectiveEligible} - Voted: {effectiveVoted} / {effectiveEligible}

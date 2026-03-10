@@ -6,6 +6,9 @@ import '../styles/GameShellBase.css';
 
 const LOGICAL_CANVAS_W = 1024;
 const LOGICAL_CANVAS_H = 768;
+const TRANSITION_DELAY_MS = 1500;
+const TRANSITION_TIME_UP_MS = 900;
+const TRANSITION_SHOW_MS = 1300;
 
 const fitCanvasToWrapper = (canvas) => {
   if (!canvas) return;
@@ -123,6 +126,9 @@ const SingleGame = () => {
   const playersByPidRef = useRef({});
   const lastSnapshotReqAtRef = useRef(0);
   const phaseZeroSnapshotRef = useRef(false);
+  const transitionStartRef = useRef(null);
+  const transitionTimerRef = useRef(null);
+  const transitionExitRef = useRef(null);
   const lastProcessedMsgSeqRef = useRef(0);
   const waitingHandledRef = useRef(false);
   const lastTraceKeyRef = useRef("");
@@ -158,12 +164,19 @@ const SingleGame = () => {
   const [votePayoutRows, setVotePayoutRows] = useState([]);
   const [votePayoutActive, setVotePayoutActive] = useState(false);
   const [votePayoutShowTotals, setVotePayoutShowTotals] = useState(false);
+  const [transitionKey, setTransitionKey] = useState(0);
+  const [transitionStarted, setTransitionStarted] = useState(false);
+  const [transitionFlipped, setTransitionFlipped] = useState(false);
+  const [transitionExit, setTransitionExit] = useState(false);
   const strokesLeft = Math.max(0, Number.isFinite(serverStrokesLeft) ? serverStrokesLeft : snapshotStrokesLeft);
   const strokesUsed = strokeLimit ? Math.max(0, strokeLimit - strokesLeft) : 0;
   const roomRoundNo = Number(snapshot?.room?.round_no || 0);
   const isInRound = snapshot?.room?.state === "IN_GAME";
   const isVotingPhase = snapshot?.room?.state === "GAME_END" && String(gameSnap?.phase || "") === "VOTING";
   const phase = String(gameSnap?.phase || "");
+  const transitionFront = String(gameSnap?.transition_front || "");
+  const transitionBack = String(gameSnap?.transition_back || "");
+  const transitionActive = phase === "TRANSITION";
   const roundEndReason = String(gameSnap?.end_reason || "");
   const gmPid = String(snapshot?.room?.gm_pid || snapshot?.roles?.gm || "");
   const drawerPid = String(gameSnap?.drawer_pid || snapshot?.roles?.drawer || "");
@@ -175,7 +188,7 @@ const SingleGame = () => {
   // Strict permission source: backend per-player role first.
   // Fallback to pid mapping only for drawer (game.drawer_pid is authoritative in SINGLE).
   const canDraw = isInRound && phase === "DRAW" && isRoleDrawer;
-  const canGuess = isInRound && isRoleGuesser;
+  const canGuess = isInRound && isRoleGuesser && phase !== "TRANSITION";
   const votesNext = useMemo(() => {
     const votes = gameSnap?.votes_next;
     return votes && typeof votes === "object" ? votes : {};
@@ -728,6 +741,52 @@ const SingleGame = () => {
     phaseZeroSnapshotRef.current = true;
     requestSnapshot();
   }, [isInRound, hasServerTimer, serverTimeLeft, phase, requestSnapshot]);
+
+  useEffect(() => {
+    if (!transitionActive) {
+      if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+      setTransitionStarted(false);
+      setTransitionFlipped(false);
+      setTransitionExit(false);
+      return;
+    }
+
+    if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+    if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+    if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+
+    setTransitionStarted(false);
+    setTransitionFlipped(false);
+    setTransitionExit(false);
+
+    transitionStartRef.current = setTimeout(() => {
+      setTransitionStarted(true);
+      setTransitionKey((k) => k + 1);
+    }, TRANSITION_DELAY_MS);
+    transitionTimerRef.current = setTimeout(
+      () => setTransitionFlipped(true),
+      TRANSITION_DELAY_MS + TRANSITION_TIME_UP_MS
+    );
+    transitionExitRef.current = setTimeout(
+      () => setTransitionExit(true),
+      TRANSITION_DELAY_MS + TRANSITION_TIME_UP_MS + TRANSITION_SHOW_MS
+    );
+    return () => {
+      if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+    };
+  }, [transitionActive, transitionFront, transitionBack]);
+
+  useEffect(() => {
+    return () => {
+      if (transitionStartRef.current) clearTimeout(transitionStartRef.current);
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+      if (transitionExitRef.current) clearTimeout(transitionExitRef.current);
+    };
+  }, []);
 
 const MAX_TIME = 60;
 const VOTE_PAYOUT_SLIDE_DELAY_MS = 450;
@@ -1355,9 +1414,51 @@ const VOTE_PAYOUT_TOTALS_DELAY_MS = 900;
     return displayTimeLeft <= 10 ? '#ef4444' : '#f97316';
   };
 
+  const transitionFrontClass = transitionFront.includes("WINNER")
+    ? "single-phase-winner"
+    : transitionFront.includes("TIME")
+      ? "single-phase-timeup"
+      : "single-phase-neutral";
+  const transitionBackClass = transitionBack.includes("LIVE ROUND")
+    ? "single-phase-draw"
+    : transitionBack.includes("GUESS PHASE")
+    ? "single-phase-guess"
+    : transitionBack.includes("DRAW PHASE")
+      ? "single-phase-draw"
+      : transitionBack.toLowerCase().includes("correct")
+        ? "single-phase-correct"
+        : "single-phase-neutral";
+
   // ========== RENDER ==========
   return (
     <div className="game-wrapper">
+      {transitionActive && (
+        <div className="single-phase-overlay">
+          {transitionStarted && (
+            <div className="single-phase-flip-card">
+              <div
+                key={transitionKey}
+                className={`single-phase-flip-inner ${transitionFlipped ? "is-flipped" : ""}`}
+              >
+                <div className="single-phase-face single-phase-front">
+                  <div className={`single-phase-banner ${transitionFrontClass} pop-in`}>
+                    {transitionFront}
+                  </div>
+                </div>
+                <div className="single-phase-face single-phase-back">
+                  <div
+                    className={`single-phase-banner ${transitionBackClass} ${
+                      transitionFlipped ? "pop-in" : ""
+                    } ${transitionExit ? "pop-out" : ""}`}
+                  >
+                    {transitionBack}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {/* Header with Icons */}
       <header className="top-bar dg-shell-topbar">
         {/* Left: Settings + Data */}

@@ -205,6 +205,115 @@
   margin: 3px 0;
 }
 
+.result-vote-countdown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 5px 0 8px;
+}
+
+.result-vote-countdown__text {
+  min-width: 0;
+  text-align: left;
+}
+
+.result-vote-timer {
+  --vote-progress: 0%;
+  --vote-tone: #7dd3fc;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  position: relative;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at center, rgba(15, 23, 42, 0.95) 57%, transparent 58%),
+    conic-gradient(var(--vote-tone) var(--vote-progress), rgba(148, 163, 184, 0.2) 0);
+  box-shadow:
+    0 0 0 1px rgba(148, 163, 184, 0.3),
+    inset 0 0 12px rgba(2, 6, 23, 0.75);
+  transition: transform 180ms ease, filter 180ms ease;
+}
+
+.result-vote-timer__value {
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.92rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #e2e8f0;
+  transform: translateY(1px);
+}
+
+.result-vote-timer__unit {
+  position: absolute;
+  right: 14px;
+  bottom: 13px;
+  font-family: "Bitcount Single", monospace;
+  font-size: 0.5rem;
+  font-weight: 900;
+  color: #94a3b8;
+  text-transform: uppercase;
+}
+
+.result-vote-timer--normal {
+  --vote-tone: #7dd3fc;
+}
+
+.result-vote-timer--warn {
+  --vote-tone: #facc15;
+}
+
+.result-vote-timer--danger {
+  --vote-tone: #fb923c;
+}
+
+.result-vote-timer--critical {
+  --vote-tone: #fb7185;
+  animation: voteCriticalPulse 780ms ease-in-out infinite;
+}
+
+.result-vote-timer--sync {
+  --vote-tone: #94a3b8;
+}
+
+.result-vote-timer--ended {
+  --vote-tone: #64748b;
+  filter: grayscale(0.2);
+}
+
+.result-vote-meta--countdown {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.result-vote-meta--subtle {
+  margin: 2px 0 0;
+  font-size: 0.7rem;
+}
+
+.result-vote-meta--normal {
+  color: #bae6fd;
+}
+
+.result-vote-meta--warn {
+  color: #fde68a;
+}
+
+.result-vote-meta--danger {
+  color: #fdba74;
+}
+
+.result-vote-meta--critical {
+  color: #fda4af;
+}
+
+.result-vote-meta--sync,
+.result-vote-meta--ended {
+  color: #94a3b8;
+}
+
 .result-vote-meta--stats {
   margin-bottom: 10px;
 }
@@ -467,6 +576,30 @@
   }
 }
 
+@keyframes voteCriticalPulse {
+  0% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 1px rgba(251, 113, 133, 0.38),
+      inset 0 0 12px rgba(2, 6, 23, 0.75),
+      0 0 0 rgba(251, 113, 133, 0);
+  }
+  70% {
+    transform: scale(1.02);
+    box-shadow:
+      0 0 0 1px rgba(251, 113, 133, 0.58),
+      inset 0 0 12px rgba(2, 6, 23, 0.75),
+      0 0 0 8px rgba(251, 113, 133, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 0 1px rgba(251, 113, 133, 0.38),
+      inset 0 0 12px rgba(2, 6, 23, 0.75),
+      0 0 0 rgba(251, 113, 133, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .result-modal {
     animation: none;
@@ -489,6 +622,14 @@
     transition: none;
     opacity: 1;
     transform: none;
+  }
+
+  .result-vote-timer {
+    transition: none;
+  }
+
+  .result-vote-timer--critical {
+    animation: none;
   }
 }
 
@@ -530,6 +671,14 @@
 
   .result-icon {
     font-size: 3rem;
+  }
+
+  .result-vote-countdown {
+    align-items: flex-start;
+  }
+
+  .result-vote-countdown__text {
+    text-align: left;
   }
 
   .result-vote-actions {

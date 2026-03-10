@@ -1,0 +1,722 @@
+.rolepick-theme-sandbox {
+  --bg-dark: #020617;
+  --bg-panel: rgba(15, 23, 42, 0.72);
+  --bg-gradient: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --team-orange: #ef4444;
+  --team-orange-dim: rgba(239, 68, 68, 0.1);
+  --team-orange-glow: rgba(239, 68, 68, 0.34);
+  --team-blue: #2e86de;
+  --team-blue-dim: rgba(46, 134, 222, 0.1);
+  --team-blue-glow: rgba(46, 134, 222, 0.34);
+  --gm-yellow: #facc15;
+  --slot-frame: rgba(255, 255, 255, 0.16);
+  --slot-screen: #020617;
+  --gold-metal: #f97316;
+  --border-color: rgba(255, 255, 255, 0.14);
+  background: var(--bg-gradient);
+  background-size: 200% 200%;
+  color: var(--text-main);
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(14px, env(safe-area-inset-top, 0px)) 18px max(14px, env(safe-area-inset-bottom, 0px));
+  font-family: "Lato", sans-serif;
+  animation: rolepick-gradient-move 16s ease infinite;
+}
+
+@keyframes rolepick-gradient-move {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.rolepick-theme-sandbox * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.rolepick-theme-sandbox .rolepick-theme-shell {
+  width: min(1280px, 100%);
+  min-height: min(900px, calc(100dvh - 28px));
+  display: flex;
+  border-radius: 24px;
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.32);
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.rolepick-theme-sandbox .left-column {
+  width: 65%;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.7), rgba(15, 23, 42, 0.58));
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+  position: relative;
+  box-shadow: inset -8px 0 20px rgba(0, 0, 0, 0.28);
+}
+
+.rolepick-theme-sandbox .machine-container {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.rolepick-theme-sandbox .sandbox-config {
+  width: 100%;
+  max-width: 700px;
+  margin: 0 auto 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(2, 6, 23, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rolepick-theme-sandbox .sandbox-config-row {
+  display: grid;
+  grid-template-columns: 120px 120px 1fr;
+  gap: 10px;
+}
+
+.rolepick-theme-sandbox .sandbox-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.rolepick-theme-sandbox .sandbox-field label {
+  font-size: 0.67rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 700;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .sandbox-field input,
+.rolepick-theme-sandbox .sandbox-field select {
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--text-main);
+  padding: 0 10px;
+  font-size: 0.75rem;
+  font-family: "Lato", sans-serif;
+}
+
+.rolepick-theme-sandbox .sandbox-field input:focus,
+.rolepick-theme-sandbox .sandbox-field select:focus {
+  outline: none;
+  border-color: rgba(249, 115, 22, 0.7);
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.2);
+}
+
+.rolepick-theme-sandbox .sandbox-config-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rolepick-theme-sandbox .sandbox-config-actions .spin-btn {
+  width: auto;
+  min-width: 155px;
+  padding: 9px 14px;
+  font-size: 0.78rem;
+}
+
+.rolepick-theme-sandbox .sandbox-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .slot-machine {
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.94) 0%, rgba(15, 23, 42, 0.96) 100%);
+  border: 3px solid var(--slot-frame);
+  border-radius: 20px;
+  padding: 16px;
+  width: 100%;
+  max-width: 700px;
+  box-shadow: 0 0 0 1px rgba(2, 6, 23, 0.9), 0 16px 32px rgba(0, 0, 0, 0.48), 0 0 14px rgba(249, 115, 22, 0.18);
+  position: relative;
+}
+
+.rolepick-theme-sandbox .machine-header {
+  text-align: center;
+  margin-bottom: 15px;
+  color: var(--gold-metal);
+  font-weight: 900;
+  font-size: 1.2rem;
+  text-shadow: 0 2px 0 rgba(124, 45, 18, 0.9);
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  background: rgba(2, 6, 23, 0.55);
+  padding: 8px 0;
+  border-radius: 8px;
+  border-bottom: 2px solid rgba(249, 115, 22, 0.55);
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .light {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+  z-index: 5;
+}
+
+.rolepick-theme-sandbox .light.red {
+  background: #ef4444;
+  color: #ef4444;
+  top: 15px;
+  right: 15px;
+  animation: rolepick-blink 0.8s infinite alternate;
+}
+
+.rolepick-theme-sandbox .light.blue {
+  background: var(--team-blue);
+  color: var(--team-blue);
+  bottom: 15px;
+  left: 15px;
+  animation: rolepick-blink 1s infinite alternate-reverse;
+}
+
+.rolepick-theme-sandbox .light.green {
+  background: #f97316;
+  color: #f97316;
+  top: 15px;
+  left: 15px;
+  animation: rolepick-blink 1.2s infinite alternate;
+}
+
+.rolepick-theme-sandbox .light.yellow {
+  background: #facc15;
+  color: #facc15;
+  bottom: 15px;
+  right: 15px;
+  animation: rolepick-blink 0.9s infinite alternate;
+}
+
+@keyframes rolepick-blink {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.rolepick-theme-sandbox .reels-window {
+  background-color: var(--slot-screen);
+  border-radius: 12px;
+  display: flex;
+  justify-content: space-between;
+  padding: 4px;
+  border: 2px solid rgba(2, 6, 23, 0.84);
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.9);
+  height: 220px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.rolepick-theme-sandbox .payline {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(239, 68, 68, 0.9);
+  z-index: 10;
+  box-shadow: 0 0 8px var(--team-orange);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.rolepick-theme-sandbox .payline::before,
+.rolepick-theme-sandbox .payline::after {
+  content: "v";
+  position: absolute;
+  color: var(--team-orange);
+  font-size: 14px;
+  top: -10px;
+}
+
+.rolepick-theme-sandbox .payline::before {
+  left: 4px;
+}
+
+.rolepick-theme-sandbox .payline::after {
+  right: 4px;
+}
+
+.rolepick-theme-sandbox .reel {
+  flex: 1;
+  margin: 0 4px;
+  background: #0f172a;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.rolepick-theme-sandbox .reel-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transition: transform 0s;
+  will-change: transform;
+}
+
+.rolepick-theme-sandbox .reel-item {
+  height: 73.33px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  text-align: center;
+  width: 100%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 5px;
+  line-height: 1.1;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .reel-item.winning {
+  color: var(--gm-yellow);
+  text-shadow: 0 0 10px var(--gm-yellow);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.rolepick-theme-sandbox .reel.spinning .reel-strip {
+  animation: rolepick-spin-scroll 0.2s linear infinite;
+  filter: blur(2px);
+}
+
+@keyframes rolepick-spin-scroll {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-73.33px);
+  }
+}
+
+.rolepick-theme-sandbox .reel.bouncing .reel-strip {
+  animation: rolepick-bounce-stop 0.3s ease-out;
+}
+
+@keyframes rolepick-bounce-stop {
+  0% {
+    transform: translateY(var(--target-y));
+  }
+  20% {
+    transform: translateY(calc(var(--target-y) - 10px));
+  }
+  40% {
+    transform: translateY(calc(var(--target-y) + 5px));
+  }
+  60% {
+    transform: translateY(calc(var(--target-y) - 2px));
+  }
+  80% {
+    transform: translateY(var(--target-y));
+  }
+  100% {
+    transform: translateY(var(--target-y));
+  }
+}
+
+.rolepick-theme-sandbox .spacer {
+  flex: 1;
+  min-height: 20px;
+}
+
+.rolepick-theme-sandbox .bottom-controls {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rolepick-theme-sandbox .status-text {
+  font-size: 1rem;
+  color: var(--gold-metal);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+  font-weight: 900;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+  margin: 0;
+  padding: 0;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .spin-btn {
+  background: linear-gradient(180deg, #f97316 0%, #c2410c 100%);
+  border: 2px solid #9a3412;
+  color: #fff;
+  width: 160px;
+  padding: 12px 0;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #7c2d12, 0 5px 10px rgba(0, 0, 0, 0.4), inset 0 1px 5px rgba(255, 255, 255, 0.3);
+  transition: all 0.1s;
+  position: relative;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .spin-btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #7c2d12, 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+
+.rolepick-theme-sandbox .spin-btn:disabled {
+  background: #475569;
+  border-color: #334155;
+  box-shadow: none;
+  transform: translateY(3px);
+  cursor: not-allowed;
+  color: #94a3b8;
+}
+
+.rolepick-theme-sandbox .redirect-msg {
+  font-size: 0.75rem;
+  color: #fbbf24;
+  font-weight: 700;
+  text-align: center;
+  height: 18px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .redirect-msg.visible {
+  opacity: 1;
+}
+
+.rolepick-theme-sandbox .right-column {
+  flex: 1;
+  height: 100%;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.45));
+  overflow: hidden;
+}
+
+.rolepick-theme-sandbox .gm-bar {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.rolepick-theme-sandbox .gm-badge {
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid var(--gm-yellow);
+  color: var(--gm-yellow);
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .teams-container {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.rolepick-theme-sandbox .team-column {
+  flex: 1;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.rolepick-theme-sandbox .team-gm {
+  background: rgba(234, 179, 8, 0.08);
+  border-top: 3px solid var(--gm-yellow);
+  box-shadow: 0 2px 18px rgba(234, 179, 8, 0.2);
+}
+
+.rolepick-theme-sandbox .team-gm .team-header {
+  background: linear-gradient(90deg, #ca8a04, #a16207);
+}
+
+.rolepick-theme-sandbox .team-orange {
+  background: var(--team-orange-dim);
+  border-top: 3px solid var(--team-orange);
+  box-shadow: 0 2px 20px var(--team-orange-glow);
+}
+
+.rolepick-theme-sandbox .team-orange .team-header {
+  background: linear-gradient(90deg, var(--team-orange), #b91c1c);
+}
+
+.rolepick-theme-sandbox .team-blue {
+  background: var(--team-blue-dim);
+  border-top: 3px solid var(--team-blue);
+  box-shadow: 0 2px 20px var(--team-blue-glow);
+}
+
+.rolepick-theme-sandbox .team-blue .team-header {
+  background: linear-gradient(90deg, var(--team-blue), #1d4ed8);
+}
+
+.rolepick-theme-sandbox .team-header {
+  padding: 10px 12px;
+  color: #fff;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .count-badge {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .player-list {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rolepick-theme-sandbox .player-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.rolepick-theme-sandbox .player-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rolepick-theme-sandbox .player-list::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+
+.rolepick-theme-sandbox .player-card {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid transparent;
+  transition: transform 0.2s, opacity 0.5s;
+  opacity: 0;
+  transform: translateX(10px);
+  animation: rolepick-slide-in 0.3s forwards;
+}
+
+@keyframes rolepick-slide-in {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.rolepick-theme-sandbox .player-card:hover {
+  transform: translateX(3px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.rolepick-theme-sandbox .player-card.player-card-you {
+  opacity: 1;
+  transform: translateX(0);
+  border-color: rgba(109, 74, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(109, 74, 255, 0.36), 0 0 16px rgba(109, 74, 255, 0.24);
+  background: linear-gradient(135deg, rgba(109, 74, 255, 0.22), rgba(15, 23, 42, 0.55));
+  animation: rolepick-slide-in 0.3s forwards, rolepick-you-glow 1.7s ease-in-out infinite 0.3s;
+}
+
+.rolepick-theme-sandbox .team-orange .player-card.player-card-you {
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.34), 0 0 16px rgba(239, 68, 68, 0.24);
+}
+
+.rolepick-theme-sandbox .team-blue .player-card.player-card-you {
+  border-color: rgba(46, 134, 222, 0.6);
+  box-shadow: 0 0 0 1px rgba(46, 134, 222, 0.34), 0 0 16px rgba(46, 134, 222, 0.24);
+}
+
+@keyframes rolepick-you-glow {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.rolepick-theme-sandbox .team-orange .player-card {
+  border-left-color: var(--team-orange);
+}
+
+.rolepick-theme-sandbox .team-blue .player-card {
+  border-left-color: var(--team-blue);
+}
+
+.rolepick-theme-sandbox .avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  margin-right: 10px;
+  font-size: 0.75rem;
+}
+
+.rolepick-theme-sandbox .p-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.rolepick-theme-sandbox .p-name {
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  line-height: 1.2;
+  gap: 8px;
+  font-family: "Lato", sans-serif;
+}
+
+.rolepick-theme-sandbox .p-role {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  align-self: flex-start;
+  width: fit-content;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-family: "Bitcount Single", monospace;
+}
+
+.rolepick-theme-sandbox .role-tag {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  color: #e2e8f0;
+  font-family: "Bitcount Single", monospace;
+}
+
+@media (max-width: 900px) {
+  .rolepick-theme-sandbox {
+    align-items: stretch;
+    justify-content: flex-start;
+    min-height: 100dvh;
+    padding: max(10px, env(safe-area-inset-top, 0px)) 10px max(10px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .rolepick-theme-sandbox .rolepick-theme-shell {
+    min-height: auto;
+    border-radius: 16px;
+    flex-direction: column;
+  }
+
+  .rolepick-theme-sandbox .left-column {
+    width: 100%;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 16px 14px 20px;
+  }
+
+  .rolepick-theme-sandbox .right-column {
+    min-height: 460px;
+    height: auto;
+    padding: 14px;
+  }
+
+  .rolepick-theme-sandbox .sandbox-config-row {
+    grid-template-columns: 1fr;
+  }
+
+  .rolepick-theme-sandbox .teams-container {
+    flex-direction: column;
+  }
+}
